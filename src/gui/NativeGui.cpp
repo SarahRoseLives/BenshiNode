@@ -1,6 +1,8 @@
 #include "NativeGui.h"
 
 #include "ConfigEditor.h"
+#include "IniConfig.h"
+#include "RadioSetup.h"
 
 #include <algorithm>
 #include <cctype>
@@ -25,6 +27,10 @@ enum ControlId {
   ID_UNKEY = 1005,
   ID_STOP = 1006,
   ID_SETTINGS = 1007,
+  ID_PAIR_RADIO = 1008,
+  ID_RESTART = 1009,
+  ID_CHANNEL_EDIT = 1030,
+  ID_CHANNEL_APPLY = 1031,
   ID_ECHO_CONNECT = 1010,
   ID_ECHO_DISCONNECT = 1011,
   ID_ECHO_DIAL = 1012,
@@ -245,8 +251,12 @@ void NativeGui::createControls() {
                        titleFont_);
   callsign_ = makeControl(hwnd_, L"STATIC", L"", SS_LEFT, 0, font_);
   connection_ = makeControl(hwnd_, L"STATIC", L"Connecting", SS_RIGHT, 0, font_);
+  pairButton_ = makeControl(hwnd_, L"BUTTON", L"Pair radio", BS_PUSHBUTTON,
+                            ID_PAIR_RADIO, font_);
   settingsButton_ = makeControl(hwnd_, L"BUTTON", L"Settings", BS_PUSHBUTTON,
                                 ID_SETTINGS, font_);
+  restartButton_ = makeControl(hwnd_, L"BUTTON", L"Restart", BS_PUSHBUTTON,
+                               ID_RESTART, font_);
 
   makeControl(hwnd_, L"BUTTON", L"Radio", BS_GROUPBOX, 0, font_);
   headline_ = makeControl(hwnd_, L"STATIC", L"Waiting for radio", SS_LEFT, 0,
@@ -316,6 +326,17 @@ void NativeGui::createControls() {
   makeControl(hwnd_, L"BUTTON", L"Bridge", BS_GROUPBOX, 0, font_);
   bridgeState_ = makeControl(hwnd_, L"STATIC", L"Idle", SS_LEFT, 0, font_);
 
+  makeControl(hwnd_, L"BUTTON", L"Channel", BS_GROUPBOX, 0, font_);
+  channelHint_ = makeControl(hwnd_, L"STATIC", L"Blank = use the radio current channel", SS_LEFT, 0, font_);
+  channelEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | ES_NUMBER,
+                                0, 0, 0, 0, hwnd_,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_CHANNEL_EDIT)),
+                                GetModuleHandleW(nullptr), nullptr);
+  SendMessageW(channelEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+  channelApply_ = makeControl(hwnd_, L"BUTTON", L"Apply", BS_PUSHBUTTON,
+                              ID_CHANNEL_APPLY, font_);
+
   makeControl(hwnd_, L"BUTTON", L"Live log", BS_GROUPBOX, 0, font_);
   log_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                          WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE |
@@ -329,8 +350,10 @@ void NativeGui::createControls() {
 void NativeGui::layoutControls() {
   MoveWindow(title_, 20, 14, 260, 40, TRUE);
   MoveWindow(callsign_, 20, 50, 260, 22, TRUE);
+  MoveWindow(pairButton_, 500, 20, 106, 32, TRUE);
   MoveWindow(settingsButton_, 620, 20, 100, 32, TRUE);
-  MoveWindow(connection_, 760, 28, 220, 22, TRUE);
+  MoveWindow(restartButton_, 730, 20, 84, 32, TRUE);
+  MoveWindow(connection_, 824, 28, 156, 22, TRUE);
 
   MoveWindow(GetDlgItem(hwnd_, 0), 0, 0, 0, 0, FALSE);
 
@@ -386,6 +409,13 @@ void NativeGui::layoutControls() {
   MoveWindow(bridgeGroup, 640, 386, 340, 100, TRUE);
   MoveWindow(bridgeState_, 660, 416, 300, 22, TRUE);
   MoveWindow(voice_, 660, 446, 300, 22, TRUE);
+
+  const HWND channelGroup =
+      FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Channel");
+  MoveWindow(channelGroup, 640, 500, 340, 120, TRUE);
+  MoveWindow(channelHint_, 660, 528, 300, 22, TRUE);
+  MoveWindow(channelEdit_, 660, 558, 120, 28, TRUE);
+  MoveWindow(channelApply_, 790, 558, 80, 28, TRUE);
 
   const HWND logGroup = FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Live log");
   MoveWindow(logGroup, 20, 702, 960, 128, TRUE);
@@ -469,6 +499,8 @@ void NativeGui::refresh() {
                                   !state.discord);
   EnableWindow(discordLeave_, state.connected && state.discord);
   EnableWindow(sendButton_, state.connected);
+  EnableWindow(channelEdit_, state.connected);
+  EnableWindow(channelApply_, state.connected);
   for (HWND button : keypadButtons_) {
     EnableWindow(button, state.connected);
   }
@@ -540,9 +572,32 @@ void NativeGui::onCommand(int id) {
     action_({.type = "shutdown"});
     PostMessageW(hwnd_, WM_CLOSE, 0, 0);
     break;
+  case ID_PAIR_RADIO: {
+    const std::string mac = showRadioSetup(hwnd_, state_().mac);
+    if (!mac.empty()) {
+      std::string error;
+      if (setIniValue(configPath_, "RADIO", "MAC", mac, error)) {
+        MessageBoxW(hwnd_,
+                    L"Radio saved. Restart BenshiNode to connect to it.",
+                    L"BenshiNode", MB_ICONINFORMATION);
+      } else {
+        MessageBoxW(hwnd_, wide(error).c_str(), L"BenshiNode", MB_ICONERROR);
+      }
+    }
+    break;
+  }
   case ID_SETTINGS:
     showConfigEditor(hwnd_, configPath_);
     break;
+  case ID_RESTART:
+    action_({.type = "restart"});
+    break;
+  case ID_CHANNEL_APPLY: {
+    wchar_t buffer[16]{};
+    GetWindowTextW(channelEdit_, buffer, static_cast<int>(std::size(buffer)));
+    action_({.type = "set_channel", .value = narrow(buffer)});
+    break;
+  }
   case ID_ECHO_CONNECT:
     action_({.type = "echolink_connect"});
     break;

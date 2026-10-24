@@ -14,6 +14,7 @@ namespace vr76::gui {
 
 struct State {
   std::string callsign;
+  std::string mac;
   bool connected = false;
   bool radioReady = false;
   bool powerOn = false;
@@ -101,9 +102,14 @@ private:
   HWND echoState_ = nullptr;
   HWND discordState_ = nullptr;
   HWND bridgeState_ = nullptr;
+  HWND channelEdit_ = nullptr;
+  HWND channelApply_ = nullptr;
+  HWND channelHint_ = nullptr;
   HWND log_ = nullptr;
 
+  HWND pairButton_ = nullptr;
   HWND settingsButton_ = nullptr;
+  HWND restartButton_ = nullptr;
   HWND helpButton_ = nullptr;
   HWND identButton_ = nullptr;
   HWND parrotButton_ = nullptr;

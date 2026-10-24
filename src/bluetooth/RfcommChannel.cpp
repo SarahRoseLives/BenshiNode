@@ -5,6 +5,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <sstream>
 
@@ -277,6 +278,93 @@ std::vector<PairedDevice> RfcommChannel::listPairedDevices(Logger &logger) {
                  hresultMessage(e));
   }
   return result;
+}
+
+std::vector<BluetoothDeviceInfo> RfcommChannel::discoverDevices(std::string &error) {
+  std::vector<BluetoothDeviceInfo> result;
+  try {
+    ensureApartment();
+    const auto selector = bluetooth::BluetoothDevice::GetDeviceSelector();
+    const auto devices =
+        enumeration::DeviceInformation::FindAllAsync(selector).get();
+    for (const auto &info : devices) {
+      try {
+        auto device = bluetooth::BluetoothDevice::FromIdAsync(info.Id()).get();
+        if (!device) {
+          continue;
+        }
+        BluetoothDeviceInfo entry;
+        entry.id = winrt::to_string(info.Id());
+        entry.name = winrt::to_string(device.Name());
+        entry.address = formatMac(device.BluetoothAddress());
+        entry.paired = info.Pairing().IsPaired();
+        std::string lowerName = entry.name;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                       [](unsigned char c) {
+                         return static_cast<char>(std::tolower(c));
+                       });
+        entry.radioCandidate =
+            lowerName.find("vr-n") != std::string::npos ||
+            lowerName.find("n7600") != std::string::npos ||
+            lowerName.find("benshi") != std::string::npos;
+        if (!entry.radioCandidate && entry.paired) {
+          try {
+            auto services =
+                device
+                    .GetRfcommServicesForIdAsync(
+                        rfcomm::RfcommServiceId::FromUuid(kBsAocUuid),
+                        bluetooth::BluetoothCacheMode::Cached)
+                    .get();
+            entry.radioCandidate =
+                services.Error() == bluetooth::BluetoothError::Success &&
+                services.Services().Size() > 0;
+          } catch (...) {
+          }
+        }
+        result.push_back(std::move(entry));
+      } catch (...) {
+      }
+    }
+  } catch (const winrt::hresult_error &e) {
+    error = "Bluetooth scan failed: " + hresultMessage(e);
+  } catch (...) {
+    error = "Bluetooth scan failed";
+  }
+  return result;
+}
+
+bool RfcommChannel::pairDevice(const std::string &deviceId, std::string &error) {
+  try {
+    ensureApartment();
+    auto info = enumeration::DeviceInformation::CreateFromIdAsync(
+                    winrt::to_hstring(deviceId))
+                    .get();
+    if (!info) {
+      error = "Bluetooth device was not found";
+      return false;
+    }
+    auto pairing = info.Pairing();
+    if (pairing.IsPaired()) {
+      return true;
+    }
+    auto result = pairing.Custom()
+                      .PairAsync(enumeration::DevicePairingKinds::ConfirmOnly)
+                      .get();
+    const auto status = result.Status();
+    if (status == enumeration::DevicePairingResultStatus::Paired ||
+        status == enumeration::DevicePairingResultStatus::AlreadyPaired) {
+      return true;
+    }
+    error = "Pairing was not completed (status " +
+            std::to_string(static_cast<int>(status)) + ")";
+    return false;
+  } catch (const winrt::hresult_error &e) {
+    error = "Pairing failed: " + hresultMessage(e);
+    return false;
+  } catch (...) {
+    error = "Pairing failed";
+    return false;
+  }
 }
 
 } // namespace vr76

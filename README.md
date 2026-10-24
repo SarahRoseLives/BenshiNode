@@ -56,19 +56,21 @@ The radio exposes two Bluetooth Classic RFCOMM services:
 - Audio: vendor "BS AOC" `39144315-32FA-40DB-85ED-FBFEBA2D86E6`
   (falls back to generic audio `00001203-0000-1000-8000-00805F9B34FB`)
 
-## Pairing on Windows
+## Pairing a radio
+
+The easiest path is the native GUI:
+
+1. Put the radio in Bluetooth pairing mode.
+2. Open `BenshiNodeGUI.exe` and click **Pair radio**.
+3. Click **Refresh**, select each radio entry, and click **Pair selected**.
+   Windows may list separate control and audio entries; pair both.
+4. Select the entry BenshiNode should use and click **Use this radio**.
+5. Click **Restart** in the main window.
 
 The radio normally appears as **two** Bluetooth devices: an audio device and a
-control device. Pair both.
-
-1. Remove any old pairing for the radio in Windows Settings.
-2. Put the radio into pairing mode and pair the **audio** device.
-3. Re-enable pairing on the radio.
-4. Add a device again, choose "Show all devices", and pair the **control**
-   device with the same radio name.
-
-If only the audio device is paired, BenshiNode will report that the RFCOMM
-service could not be found.
+control device. If only the audio device is paired, BenshiNode will report that
+the RFCOMM service could not be found. Pairing from Windows Settings still
+works as a fallback.
 
 ## Build
 
@@ -125,7 +127,7 @@ Important settings:
 [RADIO]
 MAC=AA:BB:CC:DD:EE:FF
 DUAL_WATCH=0          ; 0=single, A/1=VFO A, B/2=VFO B
-CHANNEL=30            ; 0-based memory channel; radio display is +1
+# CHANNEL=30          ; optional 0-based memory channel; radio display is +1
 APRS=0                ; disable APRS location sharing
 SBC_BITPOOL=18        ; radio-compatible SBC quality
 TX_LEAD_MS=100        ; keep the radio playout buffer shallow
@@ -149,15 +151,17 @@ WAV_DIR=clips
 On connect BenshiNode:
 
 1. Applies `DUAL_WATCH` and `APRS`.
-2. Selects the existing `CHANNEL` memory channel.
+2. Selects `CHANNEL` only when it is configured.
 3. Starts the node.
 
-BenshiNode **never rewrites channel memory**. Channel 30 is selected as-is;
-it is the radio's display channel 31 in the current setup. Use `--dump` to see
-the selected channel, frequency, name, and APRS state.
+BenshiNode **never rewrites channel memory**. If `CHANNEL` is set, that existing
+memory channel is selected as-is. If it is unset or blank, BenshiNode does not
+change the radio channel. Use the GUI Channel box to select a memory channel or
+clear the selection, or use `--dump` to inspect the radio.
 
 `CHANNEL` is 0-based. The radio display is normally one higher. Leaving
-`CHANNEL` unset enables the VFO fallback using `FREQUENCY`.
+`CHANNEL` unset keeps the radio on its current channel. Setting `FREQUENCY`
+uses the VFO fallback instead.
 
 ## Running
 
@@ -201,11 +205,22 @@ for help (`0#`), identify (`3#`), parrot (`1#`), reset (`9#`), force unkey, and
 node stop, plus an on-screen DTMF keypad and EchoLink dial field. All controls
 use the same no-star command codes as the radio keypad.
 
-The **Settings** button opens the complete `BenshiNode.ini` in a native editor.
-Every section and key can be changed there, including radio, DTMF, Piper,
-EchoLink, Discord, link, logging, and advanced options. Saving creates a
-`BenshiNode.ini.bak` backup first. Restart BenshiNode after saving for changes
-to take effect.
+The **Pair radio** button scans Bluetooth, pairs selected devices, and saves the
+selected radio address. Windows may show separate control and audio entries for
+the radio; pair both, then select the entry BenshiNode should use. No `.ini`
+editing is required.
+
+The **Settings** window lists every section and key in the configuration as
+individual fields. Select a field, edit its value, and use Save; optional path
+fields have a Browse button. This covers radio, channel, DTMF, Piper, EchoLink,
+Discord, link, logging, and advanced options. Saving creates a
+`BenshiNode.ini.bak` backup first.
+
+The main window also has a **Channel** box. Enter a memory channel ID and click
+Apply to select it live and save it for future starts. Leave it blank and click
+Apply to stop forcing a channel; the radio then stays on its own current
+channel. Use the **Restart** button after changing settings that require a
+reload.
 
 ## DTMF commands
 

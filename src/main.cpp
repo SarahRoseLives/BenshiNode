@@ -3,6 +3,7 @@
 #include "bluetooth/RfcommChannel.h"
 #include "discord/DiscordClient.h"
 #include "echolink/EchoLinkClient.h"
+#include "gui/IniConfig.h"
 #include "gui/NativeGui.h"
 #include "link/LinkClient.h"
 #include "link/LinkServer.h"
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -32,6 +34,7 @@
 namespace {
 
 std::atomic<bool> g_stop{false};
+std::atomic<bool> g_restart{false};
 
 BOOL WINAPI consoleHandler(DWORD type) {
   if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT ||
@@ -534,6 +537,7 @@ int main(int argc, char **argv) {
           [&]() {
             vr76::gui::State state;
             state.callsign = config.getString("NODE", "CALLSIGN", "");
+            state.mac = config.getString("RADIO", "MAC", "");
             const vr76::RadioStatus status = node->radioStatus();
             state.connected = session.isConnected();
             state.radioReady = node->radioReady();
@@ -557,6 +561,11 @@ int main(int argc, char **argv) {
           },
           [&]() { return logger.recent(200); },
           [&](const vr76::gui::Action &action) {
+            if (action.type == "restart") {
+              g_restart.store(true);
+              g_stop.store(true);
+              return;
+            }
             std::lock_guard<std::mutex> lock(guiMutex);
             guiActions.push_back(action);
           },
@@ -639,6 +648,30 @@ int main(int argc, char **argv) {
       } else if (action.type == "unkey") {
         if (!session.forceUnkey(actionError)) {
           logger.warning("GUI unkey failed: " + actionError);
+        }
+      } else if (action.type == "set_channel") {
+        if (action.value.empty()) {
+          if (vr76::gui::setIniValue(configPath, "RADIO", "CHANNEL", "",
+                                     actionError)) {
+            logger.info("GUI cleared forced channel selection");
+          } else {
+            logger.warning("Could not clear channel selection: " + actionError);
+          }
+        } else {
+          try {
+            const int channel = std::stoi(action.value);
+            if (channel < 0 || channel > 255) {
+              logger.warning("GUI channel is out of range");
+            } else if (!session.setChannel(channel, actionError)) {
+              logger.warning("GUI channel change failed: " + actionError);
+            } else if (!vr76::gui::setIniValue(configPath, "RADIO", "CHANNEL",
+                                               action.value, actionError)) {
+              logger.warning("Channel changed but config was not saved: " +
+                             actionError);
+            }
+          } catch (...) {
+            logger.warning("GUI channel is not a number");
+          }
         }
       } else if (action.type == "shutdown") {
         logger.info("GUI requested shutdown");
@@ -756,6 +789,33 @@ int main(int argc, char **argv) {
   if (link || echoLink) {
     vr76::link::socketCleanup();
   }
+
+  if (g_restart.load()) {
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) > 0) {
+      std::filesystem::path configFile(configPath);
+      std::error_code ec;
+      configFile = std::filesystem::absolute(configFile, ec);
+      if (ec) {
+        configFile = configPath;
+      }
+      std::wstring commandLine =
+          L"\"" + std::wstring(modulePath) + L"\" --gui --config \"" +
+          configFile.wstring() + L"\"";
+      STARTUPINFOW startup{};
+      startup.cb = sizeof(startup);
+      PROCESS_INFORMATION process{};
+      if (CreateProcessW(modulePath, commandLine.data(), nullptr, nullptr,
+                         FALSE, CREATE_NO_WINDOW, nullptr,
+                         configFile.parent_path().c_str(), &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+      } else {
+        logger.error("Could not restart BenshiNode");
+      }
+    }
+  }
+
   winrt::uninit_apartment();
   return 0;
 }

@@ -1,10 +1,12 @@
 #include "ConfigEditor.h"
 
+#include "IniConfig.h"
+#include "RadioSetup.h"
+
 #include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <commdlg.h>
 #include <string>
+#include <vector>
 
 namespace vr76::gui {
 
@@ -13,12 +15,15 @@ namespace {
 constexpr wchar_t kClassName[] = L"BenshiNodeConfigEditor";
 
 enum : int {
-  ID_EDIT = 4000,
-  ID_SAVE = 4001,
-  ID_RELOAD = 4002,
-  ID_CLOSE = 4003,
-  ID_PATH = 4004,
-  ID_STATUS = 4005
+  ID_LIST = 4000,
+  ID_VALUE = 4001,
+  ID_LABEL = 4002,
+  ID_PATH = 4003,
+  ID_STATUS = 4004,
+  ID_SAVE = 4005,
+  ID_CLOSE = 4006,
+  ID_BROWSE = 4007,
+  ID_PAIR = 4008
 };
 
 std::wstring wide(const std::string &text) {
@@ -44,25 +49,23 @@ std::string narrow(const std::wstring &text) {
   return result;
 }
 
-std::string readFile(const std::string &path) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input) return {};
-  std::ostringstream out;
-  out << input.rdbuf();
-  return out.str();
-}
-
-struct ConfigEditor {
+struct ConfigDialog {
   HWND hwnd = nullptr;
-  HWND edit = nullptr;
+  HWND listBox = nullptr;
+  HWND valueEdit = nullptr;
+  HWND labelText = nullptr;
   HWND pathLabel = nullptr;
-  HWND status = nullptr;
-  HWND save = nullptr;
-  HWND reload = nullptr;
-  HWND close = nullptr;
+  HWND statusText = nullptr;
+  HWND saveButton = nullptr;
+  HWND closeButton = nullptr;
+  HWND browseButton = nullptr;
+  HWND pairButton = nullptr;
   HFONT font = nullptr;
-  HFONT monoFont = nullptr;
   std::string path;
+  IniDocument document;
+  std::vector<IniEntry> entries;
+  int current = -1;
+  bool suppressChange = false;
   bool dirty = false;
 
   void createControls() {
@@ -70,42 +73,49 @@ struct ConfigEditor {
                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
                        L"Segoe UI");
-    monoFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           FIXED_PITCH | FF_MODERN, L"Consolas");
 
     pathLabel = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                 0, 0, 0, 0, hwnd, nullptr, nullptr, nullptr);
-    status = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                             0, 0, 0, 0, hwnd, nullptr, nullptr, nullptr);
-    edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL |
-                                ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL |
-                                ES_WANTRETURN,
+    listBox = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+                           WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
+                           0, 0, 0, 0, hwnd,
+                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_LIST)),
+                           nullptr, nullptr);
+    labelText = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+                            0, 0, 0, 0, hwnd, nullptr, nullptr, nullptr);
+    valueEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                            WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE |
+                                ES_AUTOVSCROLL | ES_WANTRETURN,
                             0, 0, 0, 0, hwnd,
-                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_EDIT)),
+                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_VALUE)),
                             nullptr, nullptr);
-    save = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE,
+    statusText = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+                             0, 0, 0, 0, hwnd, nullptr, nullptr, nullptr);
+    saveButton = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE,
                           0, 0, 0, 0, hwnd,
                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_SAVE)),
                           nullptr, nullptr);
-    reload = CreateWindowExW(0, L"BUTTON", L"Reload", WS_CHILD | WS_VISIBLE,
-                             0, 0, 0, 0, hwnd,
-                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_RELOAD)),
-                             nullptr, nullptr);
-    close = CreateWindowExW(0, L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE,
+    closeButton = CreateWindowExW(0, L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE,
                             0, 0, 0, 0, hwnd,
                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_CLOSE)),
                             nullptr, nullptr);
+    browseButton = CreateWindowExW(0, L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE,
+                             0, 0, 0, 0, hwnd,
+                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_BROWSE)),
+                             nullptr, nullptr);
+    pairButton = CreateWindowExW(0, L"BUTTON", L"Pair radio...", WS_CHILD | WS_VISIBLE,
+                           0, 0, 0, 0, hwnd,
+                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_PAIR)),
+                           nullptr, nullptr);
 
-    for (HWND control : {pathLabel, status, save, reload, close}) {
+    for (HWND control : {pathLabel, labelText, statusText, saveButton, closeButton, browseButton, pairButton}) {
       SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     }
-    SendMessageW(edit, WM_SETFONT, reinterpret_cast<WPARAM>(monoFont), TRUE);
-    SendMessageW(edit, EM_SETLIMITTEXT, static_cast<WPARAM>(2000000), 0);
-    SetWindowTextW(pathLabel, (L"Editing: " + wide(path)).c_str());
-    SetWindowTextW(status, L"Changes require a BenshiNode restart.");
+    SendMessageW(listBox, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessageW(valueEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessageW(valueEdit, EM_SETLIMITTEXT, static_cast<WPARAM>(200000), 0);
+    SetWindowTextW(pathLabel, (L"Settings file: " + wide(path)).c_str());
+    SetWindowTextW(statusText, L"Changes require a BenshiNode restart.");
     layout();
   }
 
@@ -115,111 +125,165 @@ struct ConfigEditor {
     const int width = client.right - client.left;
     const int height = client.bottom - client.top;
     MoveWindow(pathLabel, 16, 10, std::max(100, width - 32), 22, TRUE);
-    MoveWindow(edit, 16, 38, std::max(100, width - 32),
-               std::max(100, height - 100), TRUE);
-    MoveWindow(status, 16, height - 50, std::max(100, width - 300), 24, TRUE);
-    MoveWindow(reload, width - 270, height - 54, 80, 32, TRUE);
-    MoveWindow(save, width - 180, height - 54, 80, 32, TRUE);
-    MoveWindow(close, width - 90, height - 54, 74, 32, TRUE);
+    MoveWindow(pairButton, width - 150, 36, 134, 30, TRUE);
+    MoveWindow(listBox, 16, 74, 280, std::max(100, height - 140), TRUE);
+    MoveWindow(labelText, 312, 74, std::max(100, width - 328), 24, TRUE);
+    MoveWindow(valueEdit, 312, 104, std::max(100, width - 328),
+               std::max(100, height - 190), TRUE);
+    MoveWindow(browseButton, 312, height - 80, 90, 30, TRUE);
+    MoveWindow(statusText, 16, height - 46, std::max(100, width - 380), 24, TRUE);
+    MoveWindow(closeButton, width - 280, height - 50, 80, 32, TRUE);
+    MoveWindow(saveButton, width - 190, height - 50, 80, 32, TRUE);
   }
 
-  void loadFromDisk() {
-    const std::string text = readFile(path);
-    if (text.empty() && !std::filesystem::exists(path)) {
-      SetWindowTextW(status, L"Could not read the configuration file.");
+  void commitCurrent() {
+    if (current < 0 || current >= static_cast<int>(entries.size())) {
       return;
     }
-    SetWindowTextW(edit, wide(text).c_str());
-    dirty = false;
-    SetWindowTextW(status, L"Loaded. Changes require a BenshiNode restart.");
-  }
-
-  void saveToDisk() {
-    const int length = GetWindowTextLengthW(edit);
+    const int length = GetWindowTextLengthW(valueEdit);
     std::wstring text(static_cast<size_t>(length) + 1, L'\0');
-    GetWindowTextW(edit, text.data(), length + 1);
+    GetWindowTextW(valueEdit, text.data(), length + 1);
     text.resize(static_cast<size_t>(length));
+    const IniEntry &entry = entries[static_cast<size_t>(current)];
+    document.set(entry.section, entry.key, narrow(text));
+  }
 
-    try {
-      if (std::filesystem::exists(path)) {
-        std::error_code ec;
-        std::filesystem::copy_file(path, path + ".bak",
-                                   std::filesystem::copy_options::overwrite_existing,
-                                   ec);
-      }
-    } catch (...) {
-    }
-
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output) {
-      SetWindowTextW(status, L"Could not write the configuration file.");
+  void selectItem(int index) {
+    if (index == current) return;
+    commitCurrent();
+    current = index;
+    if (index < 0 || index >= static_cast<int>(entries.size())) {
+      SetWindowTextW(labelText, L"Select a setting");
+      SetWindowTextW(valueEdit, L"");
       return;
     }
-    const std::string bytes = narrow(text);
-    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    if (!output) {
-      SetWindowTextW(status, L"Could not finish writing the configuration file.");
+    const IniEntry &entry = entries[static_cast<size_t>(index)];
+    SetWindowTextW(labelText, (wide(entry.section) + L" / " + wide(entry.key)).c_str());
+    suppressChange = true;
+    SetWindowTextW(valueEdit, wide(document.get(entry.section, entry.key)).c_str());
+    suppressChange = false;
+    SetFocus(valueEdit);
+  }
+
+  void load() {
+    std::string error;
+    if (!document.load(path, error)) {
+      SetWindowTextW(statusText, L"Could not read the configuration file.");
+      return;
+    }
+    entries = document.entries();
+    SendMessageW(listBox, LB_RESETCONTENT, 0, 0);
+    for (const IniEntry &entry : entries) {
+      const std::wstring text = wide(entry.section) + L"  /  " + wide(entry.key);
+      SendMessageW(listBox, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+    }
+    current = -1;
+    dirty = false;
+    if (!entries.empty()) {
+      SendMessageW(listBox, LB_SETCURSEL, 0, 0);
+      selectItem(0);
+    }
+    SetWindowTextW(statusText, L"Loaded. Changes require a BenshiNode restart.");
+  }
+
+  void saveDocument() {
+    commitCurrent();
+    std::string error;
+    if (!document.save(path, error)) {
+      SetWindowTextW(statusText, wide(error).c_str());
       return;
     }
     dirty = false;
-    SetWindowTextW(status, L"Saved. Restart BenshiNode to apply changes.");
+    SetWindowTextW(statusText, L"Saved. A .bak backup was created. Restart BenshiNode to apply.");
   }
 
-  void command(int id) {
-    if (id == ID_SAVE) {
-      saveToDisk();
-    } else if (id == ID_RELOAD) {
-      if (dirty) {
-        const int answer = MessageBoxW(
-            hwnd, L"Discard unsaved changes and reload from disk?", L"BenshiNode",
-            MB_ICONQUESTION | MB_YESNO);
-        if (answer != IDYES) return;
+  bool browseCurrent() {
+    if (current < 0 || current >= static_cast<int>(entries.size())) return false;
+    const IniEntry &entry = entries[static_cast<size_t>(current)];
+    const bool exe = entry.section == "PIPER" && entry.key == "EXE";
+    const bool model = entry.section == "PIPER" && entry.key == "MODEL";
+    if (!exe && !model) return false;
+
+    wchar_t file[MAX_PATH]{};
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = hwnd;
+    dialog.lpstrFile = file;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.lpstrTitle = exe ? L"Select piper.exe" : L"Select Piper voice model";
+    dialog.lpstrFilter = exe ? L"Executable (*.exe)\0*.exe\0All files\0*.*\0"
+                             : L"Piper model (*.onnx)\0*.onnx\0All files\0*.*\0";
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&dialog)) return false;
+    suppressChange = true;
+    SetWindowTextW(valueEdit, file);
+    suppressChange = false;
+    dirty = true;
+    return true;
+  }
+
+  void pairRadio() {
+    const std::string selected = showRadioSetup(hwnd, document.get("RADIO", "MAC"));
+    if (selected.empty()) return;
+    document.set("RADIO", "MAC", selected);
+    if (current >= 0 && current < static_cast<int>(entries.size())) {
+      const IniEntry &entry = entries[static_cast<size_t>(current)];
+      if (entry.section == "RADIO" && entry.key == "MAC") {
+        suppressChange = true;
+        SetWindowTextW(valueEdit, wide(selected).c_str());
+        suppressChange = false;
       }
-      loadFromDisk();
+    }
+    dirty = true;
+    SetWindowTextW(statusText, L"Radio selected. Save to keep it, then restart BenshiNode.");
+  }
+
+  void command(int id, int notification) {
+    if (id == ID_LIST && notification == LBN_SELCHANGE) {
+      selectItem(static_cast<int>(SendMessageW(listBox, LB_GETCURSEL, 0, 0)));
+    } else if (id == ID_VALUE && notification == EN_CHANGE) {
+      if (!suppressChange) dirty = true;
+    } else if (id == ID_SAVE) {
+      saveDocument();
     } else if (id == ID_CLOSE) {
       SendMessageW(hwnd, WM_CLOSE, 0, 0);
+    } else if (id == ID_BROWSE) {
+      browseCurrent();
+    } else if (id == ID_PAIR) {
+      pairRadio();
     }
   }
 
   static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wparam,
                                      LPARAM lparam) {
-    ConfigEditor *editor = reinterpret_cast<ConfigEditor *>(
+    ConfigDialog *dialog = reinterpret_cast<ConfigDialog *>(
         GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (message == WM_NCCREATE) {
       auto *create = reinterpret_cast<CREATESTRUCTW *>(lparam);
-      editor = reinterpret_cast<ConfigEditor *>(create->lpCreateParams);
-      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(editor));
+      dialog = reinterpret_cast<ConfigDialog *>(create->lpCreateParams);
+      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(dialog));
     }
-    if (editor == nullptr) {
-      return DefWindowProcW(hwnd, message, wparam, lparam);
-    }
+    if (dialog == nullptr) return DefWindowProcW(hwnd, message, wparam, lparam);
     switch (message) {
-    case WM_COMMAND: {
-      const int id = LOWORD(wparam);
-      const int notification = HIWORD(wparam);
-      if (id == ID_EDIT && notification == EN_CHANGE) {
-        editor->dirty = true;
-        return 0;
-      }
-      editor->command(id);
+    case WM_COMMAND:
+      dialog->command(LOWORD(wparam), HIWORD(wparam));
       return 0;
-    }
     case WM_SIZE:
-      editor->layout();
+      dialog->layout();
       return 0;
     case WM_CTLCOLORSTATIC:
       return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
     case WM_GETMINMAXINFO: {
       auto *info = reinterpret_cast<MINMAXINFO *>(lparam);
-      info->ptMinTrackSize.x = 700;
-      info->ptMinTrackSize.y = 450;
+      info->ptMinTrackSize.x = 760;
+      info->ptMinTrackSize.y = 500;
       return 0;
     }
     case WM_CLOSE:
-      if (editor->dirty) {
-        const int answer = MessageBoxW(
-            hwnd, L"Discard unsaved changes?", L"BenshiNode",
-            MB_ICONQUESTION | MB_YESNO);
+      if (dialog->dirty) {
+        const int answer = MessageBoxW(hwnd, L"Discard unsaved changes?",
+                                       L"BenshiNode",
+                                       MB_ICONQUESTION | MB_YESNO);
         if (answer != IDYES) return 0;
       }
       DestroyWindow(hwnd);
@@ -236,14 +300,14 @@ struct ConfigEditor {
 } // namespace
 
 void showConfigEditor(HWND parent, const std::string &path) {
-  ConfigEditor editor;
-  editor.path = path;
+  ConfigDialog dialog;
+  dialog.path = path;
 
   const HINSTANCE instance = GetModuleHandleW(nullptr);
   WNDCLASSEXW wc{};
   wc.cbSize = sizeof(wc);
   wc.style = CS_HREDRAW | CS_VREDRAW;
-  wc.lpfnWndProc = &ConfigEditor::windowProc;
+  wc.lpfnWndProc = &ConfigDialog::windowProc;
   wc.hInstance = instance;
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
@@ -253,22 +317,18 @@ void showConfigEditor(HWND parent, const std::string &path) {
     return;
   }
 
-  RECT rect{0, 0, 900, 650};
+  RECT rect{0, 0, 920, 650};
   const DWORD style = WS_OVERLAPPEDWINDOW;
   AdjustWindowRect(&rect, style, FALSE);
   HWND hwnd = CreateWindowExW(0, kClassName, L"BenshiNode Settings", style,
                               CW_USEDEFAULT, CW_USEDEFAULT,
                               rect.right - rect.left, rect.bottom - rect.top,
-                              parent, nullptr, instance, &editor);
-  if (hwnd == nullptr) {
-    return;
-  }
-  editor.hwnd = hwnd;
-  editor.createControls();
-  editor.loadFromDisk();
-  if (parent != nullptr) {
-    EnableWindow(parent, FALSE);
-  }
+                              parent, nullptr, instance, &dialog);
+  if (hwnd == nullptr) return;
+  dialog.hwnd = hwnd;
+  dialog.createControls();
+  dialog.load();
+  if (parent != nullptr) EnableWindow(parent, FALSE);
   ShowWindow(hwnd, SW_SHOW);
   UpdateWindow(hwnd);
 
@@ -282,8 +342,7 @@ void showConfigEditor(HWND parent, const std::string &path) {
     EnableWindow(parent, TRUE);
     SetForegroundWindow(parent);
   }
-  if (editor.font != nullptr) DeleteObject(editor.font);
-  if (editor.monoFont != nullptr) DeleteObject(editor.monoFont);
+  if (dialog.font != nullptr) DeleteObject(dialog.font);
 }
 
 } // namespace vr76::gui

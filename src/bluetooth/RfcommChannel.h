@@ -23,6 +23,14 @@ struct PairedDevice {
   bool radioCandidate = false;
 };
 
+struct BluetoothDeviceInfo {
+  std::string id;
+  std::string name;
+  std::string address;
+  bool paired = false;
+  bool radioCandidate = false;
+};
+
 class RfcommChannel {
 public:
   using DataCallback = std::function<void(std::vector<uint8_t>)>;
@@ -49,6 +57,8 @@ public:
   const std::string &serviceUuid() const { return serviceUuid_; }
 
   static std::vector<PairedDevice> listPairedDevices(Logger &logger);
+  static std::vector<BluetoothDeviceInfo> discoverDevices(std::string &error);
+  static bool pairDevice(const std::string &deviceId, std::string &error);
   static uint64_t parseMac(const std::string &mac);
   static std::string formatMac(uint64_t address);
 

@@ -116,10 +116,13 @@ if(WIN32)
     src/tts/PiperTts.cpp
     src/gui/NativeGui.cpp
     src/gui/ConfigEditor.cpp
+    src/gui/IniConfig.cpp
+    src/gui/RadioSetup.cpp
   )
   target_include_directories(BenshiNode PRIVATE ${_winrt_include})
   target_link_libraries(BenshiNode PRIVATE benshinode_core gsm dpp windowsapp
-                                               ole32 ws2_32 bcrypt user32 gdi32)
+                                               ole32 ws2_32 bcrypt user32 gdi32
+                                               comdlg32)
   target_compile_options(BenshiNode PRIVATE /bigobj)
   file(GLOB DPP_RUNTIME_DLLS "${DPP_ROOT}/bin/*.dll")
   foreach(DPP_DLL ${DPP_RUNTIME_DLLS})
