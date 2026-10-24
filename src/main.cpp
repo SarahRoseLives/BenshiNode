@@ -474,6 +474,11 @@ int main(int argc, char **argv) {
                     "Leave the Discord voice channel before using EchoLink");
                 return;
               }
+              if (link && link->isConnected()) {
+                logger.error(
+                    "Disconnect the BenshiNode link before using EchoLink");
+                return;
+              }
               const std::string dialTarget =
                   target.empty() ? echoTarget : target;
               std::string echoError;
@@ -497,6 +502,11 @@ int main(int argc, char **argv) {
           if (echoLink && echoLink->isConnected()) {
             logger.error(
                 "Disconnect EchoLink before joining the Discord voice channel");
+            return;
+          }
+          if (link && link->isConnected()) {
+            logger.error(
+                "Disconnect the BenshiNode link before joining Discord");
             return;
           }
           std::string discordError;
@@ -557,6 +567,8 @@ int main(int argc, char **argv) {
             state.link = link && link->isConnected();
             state.linkConfigured = static_cast<bool>(link);
             state.voice = config.getBool("PIPER", "ENABLED", false);
+            state.linkServer = config.getString("LINK", "SERVER", "");
+            state.linkKey = config.getString("LINK", "KEY", "");
             return state;
           },
           [&]() { return logger.recent(200); },
@@ -672,6 +684,50 @@ int main(int argc, char **argv) {
           } catch (...) {
             logger.warning("GUI channel is not a number");
           }
+        }
+      } else if (action.type == "link_connect") {
+        if (action.value.empty()) {
+          logger.warning("GUI link connect needs a server address");
+        } else if (discord && discord->isVoiceReady()) {
+          logger.warning("Leave Discord before connecting a BenshiNode link");
+        } else if (echoLink && echoLink->isConnected()) {
+          logger.warning(
+              "Disconnect EchoLink before connecting a BenshiNode link");
+        } else {
+          std::string host;
+          uint16_t port = vr76::link::kDefaultControlPort;
+          if (!parseServerEndpoint(action.value, host, port)) {
+            logger.warning("GUI link server address is invalid: " + action.value);
+          } else {
+            if (link) {
+              link->stop();
+              link.reset();
+            }
+            link = std::make_unique<vr76::link::LinkClient>(logger, *node);
+            if (!link->start(host, port, action.extra,
+                             config.getString("NODE", "CALLSIGN", ""),
+                             actionError)) {
+              logger.warning("GUI link connect failed: " + actionError);
+              link.reset();
+            } else {
+              if (!vr76::gui::setIniValue(configPath, "LINK", "SERVER",
+                                          action.value, actionError)) {
+                logger.warning("Link connected but server was not saved: " +
+                               actionError);
+              }
+              if (!vr76::gui::setIniValue(configPath, "LINK", "KEY",
+                                          action.extra, actionError)) {
+                logger.warning("Link connected but key was not saved: " +
+                               actionError);
+              }
+            }
+          }
+        }
+      } else if (action.type == "link_disconnect") {
+        if (link) {
+          link->stop();
+          link.reset();
+          logger.info("BenshiNode link disconnected");
         }
       } else if (action.type == "shutdown") {
         logger.info("GUI requested shutdown");

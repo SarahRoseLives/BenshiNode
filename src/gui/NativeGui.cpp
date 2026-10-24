@@ -31,6 +31,10 @@ enum ControlId {
   ID_RESTART = 1009,
   ID_CHANNEL_EDIT = 1030,
   ID_CHANNEL_APPLY = 1031,
+  ID_LINK_SERVER = 1040,
+  ID_LINK_KEY = 1041,
+  ID_LINK_CONNECT = 1042,
+  ID_LINK_DISCONNECT = 1043,
   ID_ECHO_CONNECT = 1010,
   ID_ECHO_DISCONNECT = 1011,
   ID_ECHO_DIAL = 1012,
@@ -323,8 +327,29 @@ void NativeGui::createControls() {
   discordLeave_ = makeControl(hwnd_, L"BUTTON", L"Leave  7#", BS_PUSHBUTTON,
                               ID_DISCORD_LEAVE, font_);
 
-  makeControl(hwnd_, L"BUTTON", L"Bridge", BS_GROUPBOX, 0, font_);
-  bridgeState_ = makeControl(hwnd_, L"STATIC", L"Idle", SS_LEFT, 0, font_);
+  makeControl(hwnd_, L"BUTTON", L"BenshiNode link", BS_GROUPBOX, 0, font_);
+  bridgeState_ = makeControl(hwnd_, L"STATIC", L"Not connected", SS_LEFT, 0,
+                             font_);
+  linkServerLabel_ =
+      makeControl(hwnd_, L"STATIC", L"Server", SS_LEFT, 0, font_);
+  linkServer_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0,
+                                0, hwnd_,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_LINK_SERVER)),
+                                GetModuleHandleW(nullptr), nullptr);
+  SendMessageW(linkServer_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+  linkKeyLabel_ = makeControl(hwnd_, L"STATIC", L"Key", SS_LEFT, 0, font_);
+  linkKey_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                             WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 0, 0,
+                             hwnd_,
+                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_LINK_KEY)),
+                             GetModuleHandleW(nullptr), nullptr);
+  SendMessageW(linkKey_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+  linkConnect_ = makeControl(hwnd_, L"BUTTON", L"Connect", BS_PUSHBUTTON,
+                             ID_LINK_CONNECT, font_);
+  linkDisconnect_ =
+      makeControl(hwnd_, L"BUTTON", L"Disconnect", BS_PUSHBUTTON,
+                  ID_LINK_DISCONNECT, font_);
 
   makeControl(hwnd_, L"BUTTON", L"Channel", BS_GROUPBOX, 0, font_);
   channelHint_ = makeControl(hwnd_, L"STATIC", L"Blank = use the radio current channel", SS_LEFT, 0, font_);
@@ -405,17 +430,24 @@ void NativeGui::layoutControls() {
   MoveWindow(discordJoin_, 660, 300, 140, 36, TRUE);
   MoveWindow(discordLeave_, 820, 300, 140, 36, TRUE);
 
-  const HWND bridgeGroup = FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Bridge");
-  MoveWindow(bridgeGroup, 640, 386, 340, 100, TRUE);
-  MoveWindow(bridgeState_, 660, 416, 300, 22, TRUE);
-  MoveWindow(voice_, 660, 446, 300, 22, TRUE);
+  const HWND linkGroup =
+      FindWindowExW(hwnd_, nullptr, L"BUTTON", L"BenshiNode link");
+  MoveWindow(linkGroup, 640, 386, 340, 150, TRUE);
+  MoveWindow(bridgeState_, 660, 410, 300, 22, TRUE);
+  MoveWindow(linkServerLabel_, 660, 438, 55, 22, TRUE);
+  MoveWindow(linkServer_, 720, 434, 250, 26, TRUE);
+  MoveWindow(linkKeyLabel_, 660, 468, 55, 22, TRUE);
+  MoveWindow(linkKey_, 720, 464, 250, 26, TRUE);
+  MoveWindow(linkConnect_, 660, 500, 100, 30, TRUE);
+  MoveWindow(linkDisconnect_, 770, 500, 110, 30, TRUE);
 
   const HWND channelGroup =
       FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Channel");
-  MoveWindow(channelGroup, 640, 500, 340, 120, TRUE);
-  MoveWindow(channelHint_, 660, 528, 300, 22, TRUE);
-  MoveWindow(channelEdit_, 660, 558, 120, 28, TRUE);
-  MoveWindow(channelApply_, 790, 558, 80, 28, TRUE);
+  MoveWindow(channelGroup, 640, 550, 340, 100, TRUE);
+  MoveWindow(channelHint_, 660, 576, 300, 22, TRUE);
+  MoveWindow(channelEdit_, 660, 606, 120, 28, TRUE);
+  MoveWindow(channelApply_, 790, 606, 80, 28, TRUE);
+  MoveWindow(voice_, 660, 664, 300, 22, TRUE);
 
   const HWND logGroup = FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Live log");
   MoveWindow(logGroup, 20, 702, 960, 128, TRUE);
@@ -481,9 +513,17 @@ void NativeGui::refresh() {
   } else {
     SetWindowTextW(discordState_, state.discord ? L"Connected" : L"Idle");
   }
-  setText(bridgeState_, state.linkAudio ? "RF/network audio active" : "Idle");
-  if (state.linkConfigured && state.link) {
-    setText(bridgeState_, "BenshiNode link connected");
+  if (!linkFieldsInitialized_) {
+    SetWindowTextW(linkServer_, wide(state.linkServer).c_str());
+    SetWindowTextW(linkKey_, wide(state.linkKey).c_str());
+    linkFieldsInitialized_ = true;
+  }
+  if (state.link) {
+    setText(bridgeState_, "Connected");
+  } else if (state.linkConfigured) {
+    setText(bridgeState_, "Configured, idle");
+  } else {
+    setText(bridgeState_, "Not connected");
   }
 
   EnableWindow(helpButton_, state.connected);
@@ -501,6 +541,11 @@ void NativeGui::refresh() {
   EnableWindow(sendButton_, state.connected);
   EnableWindow(channelEdit_, state.connected);
   EnableWindow(channelApply_, state.connected);
+  const bool linkAvailable = state.connected && !state.discord && !state.echolink;
+  EnableWindow(linkServer_, linkAvailable && !state.link);
+  EnableWindow(linkKey_, linkAvailable && !state.link);
+  EnableWindow(linkConnect_, linkAvailable && !state.link);
+  EnableWindow(linkDisconnect_, state.link);
   for (HWND button : keypadButtons_) {
     EnableWindow(button, state.connected);
   }
@@ -598,6 +643,25 @@ void NativeGui::onCommand(int id) {
     action_({.type = "set_channel", .value = narrow(buffer)});
     break;
   }
+  case ID_LINK_CONNECT: {
+    wchar_t server[256]{};
+    wchar_t key[256]{};
+    GetWindowTextW(linkServer_, server, static_cast<int>(std::size(server)));
+    GetWindowTextW(linkKey_, key, static_cast<int>(std::size(key)));
+    const std::string serverText = narrow(server);
+    if (serverText.empty()) {
+      MessageBoxW(hwnd_, L"Enter a server address first.", L"BenshiNode",
+                  MB_ICONINFORMATION);
+      break;
+    }
+    action_({.type = "link_connect",
+             .value = serverText,
+             .extra = narrow(key)});
+    break;
+  }
+  case ID_LINK_DISCONNECT:
+    action_({.type = "link_disconnect"});
+    break;
   case ID_ECHO_CONNECT:
     action_({.type = "echolink_connect"});
     break;

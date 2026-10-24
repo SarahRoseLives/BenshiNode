@@ -280,6 +280,14 @@ outbound connections.
 
 ### Client
 
+In the native GUI, use the **BenshiNode link** panel: enter the server as
+`host:port`, enter the shared key, and click **Connect**. Click **Disconnect**
+to leave. The server and key are saved for convenience, but auto-connect is not
+enabled by the GUI. If Discord voice or EchoLink is active, leave/disconnect it
+first; the link shares the radio transmit path.
+
+The same connection can be configured for console/startup use:
+
 ```ini
 [LINK]
 ENABLED=1

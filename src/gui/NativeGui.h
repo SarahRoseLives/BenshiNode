@@ -30,6 +30,8 @@ struct State {
   bool echolinkConfigured = false;
   bool link = false;
   bool linkConfigured = false;
+  std::string linkServer;
+  std::string linkKey;
   bool voice = false;
   int channel = -1;
   int rssi = 0;
@@ -38,6 +40,7 @@ struct State {
 struct Action {
   std::string type;
   std::string value;
+  std::string extra;
 };
 
 class NativeGui {
@@ -105,6 +108,13 @@ private:
   HWND channelEdit_ = nullptr;
   HWND channelApply_ = nullptr;
   HWND channelHint_ = nullptr;
+  HWND linkServer_ = nullptr;
+  HWND linkKey_ = nullptr;
+  HWND linkConnect_ = nullptr;
+  HWND linkDisconnect_ = nullptr;
+  HWND linkServerLabel_ = nullptr;
+  HWND linkKeyLabel_ = nullptr;
+  bool linkFieldsInitialized_ = false;
   HWND log_ = nullptr;
 
   HWND pairButton_ = nullptr;
