@@ -32,9 +32,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     config = directory + L"\\..\\..\\..\\BenshiNode.ini";
   }
   if (GetFileAttributesW(config.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    config = directory + L"\\BenshiNode.ini";
+    const std::wstring example = directory + L"\\config\\example.ini";
+    if (GetFileAttributesW(example.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      CopyFileW(example.c_str(), config.c_str(), FALSE);
+    }
+  }
+  if (GetFileAttributesW(config.c_str()) == INVALID_FILE_ATTRIBUTES) {
     MessageBoxW(nullptr,
-                L"BenshiNode.ini was not found next to BenshiNode.exe or in "
-                L"the repository root. Run tools\\setup.ps1 first.",
+                L"BenshiNode.ini was not found. Run tools\\setup.cmd or put "
+                L"BenshiNode.ini next to BenshiNode.exe.",
                 L"BenshiNode", MB_ICONERROR);
     return 1;
   }
