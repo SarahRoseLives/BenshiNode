@@ -5,7 +5,7 @@ compatible Benshi Bluetooth handhelds. It turns the radio into a small
 SVXLink-style voice node with DTMF control, parrot mode, CW identification,
 BenshiNode linking, and outbound EchoLink.
 
-Radio callsign used by the current configuration: **K8SDR**.
+Radio callsign used by the current configuration: **N0CALL**.
 
 ## Current status
 
@@ -104,7 +104,7 @@ STATUS_POLL_MS=500
 CONNECT_RETRY_MS=5000
 
 [NODE]
-CALLSIGN=K8SDR
+CALLSIGN=N0CALL
 PARROT_MODE=dtmf      ; off | dtmf | auto
 SQUELCH_MODE=auto     ; radio | vox | auto
 VOX_THRESHOLD_DB=-38
@@ -178,7 +178,7 @@ defaults to `*4`. DTMF tones are removed from parrot and network audio.
 The ident clip is selected in this order:
 
 1. `clips\ident.wav`
-2. `clips\<CALLSIGN>.wav` (for example `clips\K8SDR.wav`)
+2. `clips\<CALLSIGN>.wav` (for example `clips\N0CALL.wav`)
 3. Generated CW from `CALLSIGN`
 
 WAV files may be 8-bit or 16-bit PCM, mono or stereo, and are resampled to

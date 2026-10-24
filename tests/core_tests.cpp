@@ -38,14 +38,14 @@ void testConfig() {
       std::filesystem::temp_directory_path() / "BenshiNode_core_test.ini";
   {
     std::ofstream out(path);
-    out << "[NODE]\nCALLSIGN=K8SDR\nPARROT_MODE=dtmf\nTX_TIMEOUT_SEC=120\n"
+    out << "[NODE]\nCALLSIGN=N0CALL\nPARROT_MODE=dtmf\nTX_TIMEOUT_SEC=120\n"
         << "COURTESY_TONE=1\n[DTMF]\n*1=PARROT\n";
   }
 
   Config config;
   std::string error;
   check(config.load(path.string(), error), "config loads");
-  check(config.getString("NODE", "CALLSIGN") == "K8SDR", "config callsign");
+  check(config.getString("NODE", "CALLSIGN") == "N0CALL", "config callsign");
   check(config.getInt("NODE", "TX_TIMEOUT_SEC", 0) == 120, "config int");
   check(config.getBool("NODE", "COURTESY_TONE", false), "config bool");
   check(config.getString("DTMF", "*1") == "PARROT", "config dtmf key");
@@ -151,7 +151,7 @@ double toneAmplitude(const std::vector<int16_t> &samples, double frequency,
 }
 
 void testCwSbc() {
-  const auto cw = vr76::ToneGenerator::cw("K8SDR", 20, 700.0, -12.0);
+  const auto cw = vr76::ToneGenerator::cw("N0CALL", 20, 700.0, -12.0);
   vr76::SbcCodec codec;
   codec.setBitpool(18);
 
@@ -241,7 +241,7 @@ void testLinkAudio() {
 }
 
 void testEchoLinkProtocol() {
-  const auto sdes = vr76::echolink::makeSdesPacket("K8SDR", "K8SDR", "");
+  const auto sdes = vr76::echolink::makeSdesPacket("N0CALL", "N0CALL", "");
   check(vr76::echolink::isRtcpSdes(sdes.data(), sdes.size()),
         "echolink sdes packet");
   check(!vr76::echolink::isRtcpBye(sdes.data(), sdes.size()),
@@ -249,7 +249,7 @@ void testEchoLinkProtocol() {
   std::string name;
   check(vr76::echolink::parseSdesItem(sdes.data(), sdes.size(), 2, name),
         "echolink parse name");
-  check(name.find("K8SDR") != std::string::npos, "echolink name content");
+  check(name.find("N0CALL") != std::string::npos, "echolink name content");
 
   const auto bye = vr76::echolink::makeByePacket();
   check(vr76::echolink::isRtcpBye(bye.data(), bye.size()),
@@ -267,7 +267,7 @@ void testEchoLinkProtocol() {
   const std::string list =
       "@@@\n2\n"
       "*TEST*\nConference [ON 12:00]\n179729\n203.0.113.10\n"
-      "K8SDR\nTest station\n12345\n203.0.113.11\n"
+      "N0CALL\nTest station\n12345\n203.0.113.11\n"
       "+++\n";
   std::vector<vr76::echolink::Station> stations;
   check(vr76::echolink::parseDirectoryList(list, stations),
