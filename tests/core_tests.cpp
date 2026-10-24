@@ -277,7 +277,7 @@ void testEchoLinkProtocol() {
   check(vr76::echolink::findStation(stations, "179729", found),
         "echolink find by node id");
   check(found.callsign == "*TEST*", "echolink node id match");
-  check(vr76::echolink::findStation(stations, "k8sdr", found),
+  check(vr76::echolink::findStation(stations, "n0call", found),
         "echolink find by callsign");
 }
 
