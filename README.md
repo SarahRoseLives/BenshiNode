@@ -3,7 +3,8 @@
 BenshiNode is a Windows C++ simplex radio node for the Vero VR-N76 and
 compatible Benshi Bluetooth handhelds. It turns the radio into a small
 SVXLink-style voice node with DTMF control, parrot mode, CW identification,
-BenshiNode linking, and outbound EchoLink.
+BenshiNode linking, outbound EchoLink, and a bidirectional Discord voice
+bridge.
 
 Radio callsign used by the current configuration: **N0CALL**.
 
@@ -22,6 +23,7 @@ Working:
 - BenshiNode link server/reflector (`--server`)
 - BenshiNode link client (`--connect`)
 - Outbound EchoLink with directory lookup, GSM 06.10 audio, and DTMF dialing
+- Optional Discord voice-channel bridge with DTMF join/leave control
 - Windows build and automated protocol/codec tests
 
 Not yet implemented:
@@ -33,8 +35,10 @@ Not yet implemented:
 - Dynamic DTMF commands for the BenshiNode link server
 - Full SVXLink module/event system
 
-EchoLink is disabled by default. No EchoLink station is contacted unless
-`ECHOLINK/ENABLED=1`, `--echolink` is used, or a DTMF dial command is sent.
+EchoLink and Discord are disabled by default. No EchoLink station is contacted
+unless `ECHOLINK/ENABLED=1`, `--echolink` is used, or a DTMF dial command is
+sent. Discord is inactive until a token, guild, and voice channel are
+configured.
 
 ## Requirements
 
@@ -169,6 +173,8 @@ Default command form is `*<n>#`:
 | `*4#` | Connect to the configured EchoLink node |
 | `*4<node>#` | Dial any EchoLink node, e.g. `*4179729#` |
 | `*5#` | Disconnect EchoLink |
+| `*6#` | Join the configured Discord voice channel |
+| `*7#` | Leave the Discord voice channel |
 
 The EchoLink dial prefix is configurable with `[ECHOLINK] DTMF_PREFIX` and
 defaults to `*4`. DTMF tones are removed from parrot and network audio.
@@ -265,6 +271,47 @@ EchoLink audio is sent in the clear. There is no encryption, and none is needed
 for amateur radio. Stations remain responsible for identification and for
 following EchoLink and national regulations.
 
+## Discord
+
+BenshiNode bridges radio audio to one Discord voice channel in both directions.
+Radio RX audio is sent to Discord; Discord audio is mixed to mono and played on
+the radio. Discord and BenshiNode link mode cannot be enabled at the same time
+yet. EchoLink may stay configured for DTMF use, but BenshiNode refuses to join
+Discord while EchoLink is connected, and refuses to start EchoLink while Discord
+is connected.
+
+Create a Discord application and bot, invite the bot with **Connect** and
+**Speak** permissions for the target voice channel, then copy the bot token,
+guild ID, and channel ID into the ignored `BenshiNode.ini`. No privileged
+message-content intent is required for the voice bridge.
+
+Discord now negotiates DAVE end-to-end encryption on voice channels that require
+it. D++ logs a six-part `E2EE Privacy Code` when the encrypted voice session is
+ready. D++ may also log `frame is not encrypted and pass through is disabled` for
+legacy/unencrypted voice frames; this does not stop normal radio or Discord
+audio.
+
+```ini
+[DISCORD]
+ENABLED=0             ; 1 = join the voice channel at startup
+DTMF=1                ; allow *6# / *7# control
+TOKEN=your-bot-token
+GUILD_ID=123456789012345678
+CHANNEL_ID=123456789012345678
+```
+
+With `ENABLED=0` and `DTMF=1`, the bot connects to Discord but stays out of the
+voice channel until `*6#` is sent. Set `ENABLED=1` to auto-join at startup.
+`*7#` leaves the channel. Radio RX audio is resampled from 32 kHz to Discord's
+48 kHz stereo, and Discord audio is mixed to mono and resampled back to 32 kHz
+for the radio.
+
+The bot token is a credential. Keep it in the ignored `BenshiNode.ini`, never in
+a tracked file. D++ handles Discord voice encryption and Opus; audio sent to
+Discord is protected by Discord's voice transport and DAVE E2EE when active.
+The D++ runtime DLLs and `ca-bundle.crt` are copied next to `BenshiNode.exe` by
+the build.
+
 ## Radio protocol notes
 
 - Control: GAIA framing `FF 01 00 LEN [group16][cmd16][data...]`.
@@ -285,12 +332,14 @@ src/
   node/        squelch, DTMF, parrot, tones, ID, TX engine
   link/        BenshiNode server/client, G.711, resampling, auth
   echolink/    EchoLink directory, SDES/RTP, GSM QSO
+  discord/     D++ bot and Discord voice bridge
   util/        WAV output
 third_party/
   sbc/         Google libsbc (Apache-2.0)
   gsm/         TU Berlin GSM 06.10 codec
+  dpp/         D++ Discord library, prebuilt Windows x64 (Apache-2.0)
 tests/         protocol, codec, DTMF and audio tests
-config/        example node, server, and client configurations
+config/        example node and server configurations
 ```
 
 ## Third-party code
@@ -299,6 +348,11 @@ config/        example node, server, and client configurations
   `third_party/sbc/LICENSE`.
 - `third_party/gsm`: TU Berlin GSM 06.10 reference codec, see
   `third_party/gsm/COPYRIGHT`.
+- `third_party/dpp`: D++ Discord library, prebuilt Windows x64 release,
+  Apache-2.0, see `third_party/dpp/LICENSE`.
+- `third_party/dpp/ca-bundle.crt`: Mozilla CA root bundle from
+  `https://curl.se/ca/cacert.pem`, MPL-2.0. BenshiNode points OpenSSL at this
+  bundle so D++ can verify Discord's HTTPS certificates on Windows.
 
 The `references/` directory used during development is not part of this
 repository.
@@ -317,6 +371,11 @@ repository.
   target node ID, and UDP 5198/5199 reachability.
 - **Radio stuck transmitting**: run `--unkey`; BenshiNode also has automatic
   end-frame and status-based unkey recovery.
+- **Discord bot will not join**: verify the bot token, guild/channel IDs, and
+  that the bot has Connect/Speak permission. Voice requires UDP access to
+  Discord; restrictive firewalls can prevent audio. If HTTPS fails with
+  `Malformed HTTP response`, make sure `ca-bundle.crt` is next to
+  `BenshiNode.exe` or set `SSL_CERT_FILE` to a valid CA bundle.
 
 ## Safety
 

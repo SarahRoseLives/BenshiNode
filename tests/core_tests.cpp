@@ -310,6 +310,8 @@ void testCommands() {
   std::map<std::string, vr76::NodeCommand> commands;
   commands["*1#"] = vr76::NodeCommand::ParrotToggle;
   commands["*2#"] = vr76::NodeCommand::Help;
+  commands["*6#"] = vr76::NodeCommand::DiscordJoin;
+  commands["*7#"] = vr76::NodeCommand::DiscordLeave;
   vr76::DtmfCommandParser parser;
   parser.setCommands(commands);
 
@@ -325,6 +327,23 @@ void testCommands() {
   check(parser.feed('9', command, code) == false, "dtmf unknown digit");
   check(parser.feed('#', command, code), "dtmf unknown complete");
   check(command == vr76::NodeCommand::None, "dtmf unknown yields none");
+
+  check(parser.feed('*', command, code) == false, "discord join prefix");
+  check(parser.feed('6', command, code) == false, "discord join digit");
+  check(parser.feed('#', command, code), "discord join complete");
+  check(command == vr76::NodeCommand::DiscordJoin, "discord join command");
+  check(parser.feed('*', command, code) == false, "discord leave prefix");
+  check(parser.feed('7', command, code) == false, "discord leave digit");
+  check(parser.feed('#', command, code), "discord leave complete");
+  check(command == vr76::NodeCommand::DiscordLeave, "discord leave command");
+
+  vr76::NodeCommand parsed = vr76::NodeCommand::None;
+  check(vr76::parseNodeCommand("DISCORD", parsed), "discord command parse");
+  check(parsed == vr76::NodeCommand::DiscordJoin, "discord command value");
+  check(vr76::parseNodeCommand("DISCORD_LEAVE", parsed),
+        "discord leave command parse");
+  check(parsed == vr76::NodeCommand::DiscordLeave,
+        "discord leave command value");
 
   parser.setDialPrefix("*4");
   const std::string dial = "*4179729#";

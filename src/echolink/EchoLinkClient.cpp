@@ -63,7 +63,7 @@ EchoLinkClient::EchoLinkClient(Logger &logger, const Config &config,
 
   encoder_ = gsm_create();
   decoder_ = gsm_create();
-  node_.setRxAudioCallback(
+  node_.addRxAudioCallback(
       [this](const std::vector<int16_t> &pcm) { pushUplinkPcm(pcm); });
 }
 

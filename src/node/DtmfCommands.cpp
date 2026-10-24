@@ -21,6 +21,10 @@ const char *nodeCommandName(NodeCommand command) {
     return "ECHOLINK_DISCONNECT";
   case NodeCommand::EchoLinkDial:
     return "ECHOLINK_DIAL";
+  case NodeCommand::DiscordJoin:
+    return "DISCORD_JOIN";
+  case NodeCommand::DiscordLeave:
+    return "DISCORD_LEAVE";
   case NodeCommand::None:
     break;
   }
@@ -56,6 +60,14 @@ bool parseNodeCommand(const std::string &text, NodeCommand &command) {
   if (value == "ECHOLINK_DISCONNECT" || value == "UNLINK" ||
       value == "DISCONNECT") {
     command = NodeCommand::EchoLinkDisconnect;
+    return true;
+  }
+  if (value == "DISCORD" || value == "DISCORD_JOIN") {
+    command = NodeCommand::DiscordJoin;
+    return true;
+  }
+  if (value == "DISCORD_LEAVE") {
+    command = NodeCommand::DiscordLeave;
     return true;
   }
   return false;

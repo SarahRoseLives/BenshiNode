@@ -54,6 +54,17 @@ if(MSVC)
 endif()
 
 # ---------------------------------------------------------------------------
+# D++ Discord library (prebuilt Windows x64, Apache-2.0)
+# ---------------------------------------------------------------------------
+set(DPP_ROOT "${CMAKE_SOURCE_DIR}/third_party/dpp")
+add_library(dpp SHARED IMPORTED)
+set_target_properties(dpp PROPERTIES
+  IMPORTED_LOCATION "${DPP_ROOT}/bin/dpp.dll"
+  IMPORTED_IMPLIB   "${DPP_ROOT}/lib/dpp.lib"
+  INTERFACE_INCLUDE_DIRECTORIES "${DPP_ROOT}/include/dpp-10.1"
+)
+
+# ---------------------------------------------------------------------------
 # Portable core
 # ---------------------------------------------------------------------------
 add_library(benshinode_core STATIC
@@ -101,10 +112,23 @@ if(WIN32)
     src/link/LinkServer.cpp
     src/link/LinkClient.cpp
     src/echolink/EchoLinkClient.cpp
+    src/discord/DiscordClient.cpp
   )
   target_include_directories(BenshiNode PRIVATE ${_winrt_include})
-  target_link_libraries(BenshiNode PRIVATE benshinode_core gsm windowsapp ole32
-                                               ws2_32 bcrypt)
+  target_link_libraries(BenshiNode PRIVATE benshinode_core gsm dpp windowsapp
+                                               ole32 ws2_32 bcrypt)
+  target_compile_options(BenshiNode PRIVATE /bigobj)
+  file(GLOB DPP_RUNTIME_DLLS "${DPP_ROOT}/bin/*.dll")
+  foreach(DPP_DLL ${DPP_RUNTIME_DLLS})
+    add_custom_command(TARGET BenshiNode POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DPP_DLL}"
+              "$<TARGET_FILE_DIR:BenshiNode>"
+    )
+  endforeach()
+  add_custom_command(TARGET BenshiNode POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DPP_ROOT}/ca-bundle.crt" "$<TARGET_FILE_DIR:BenshiNode>"
+  )
   set_target_properties(BenshiNode PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )

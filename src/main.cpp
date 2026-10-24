@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Logger.h"
 #include "bluetooth/RfcommChannel.h"
+#include "discord/DiscordClient.h"
 #include "echolink/EchoLinkClient.h"
 #include "link/LinkClient.h"
 #include "link/LinkServer.h"
@@ -354,6 +355,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<vr76::NodeEngine> node;
   std::unique_ptr<vr76::link::LinkClient> link;
   std::unique_ptr<vr76::echolink::EchoLinkClient> echoLink;
+  std::unique_ptr<vr76::discord::DiscordClient> discord;
   std::string linkHost;
   uint16_t linkPort = vr76::link::kDefaultControlPort;
   std::string linkKey;
@@ -395,8 +397,34 @@ int main(int argc, char **argv) {
       }
     }
     const bool echoCapable = echoAuto || echoDtmf;
+    const std::string discordToken = config.getString("DISCORD", "TOKEN", "");
+    const std::string discordGuild = config.getString("DISCORD", "GUILD_ID", "");
+    const std::string discordChannel =
+        config.getString("DISCORD", "CHANNEL_ID", "");
+    const bool discordConfigured =
+        !discordToken.empty() && !discordGuild.empty() &&
+        !discordChannel.empty();
+    const bool discordDtmf = config.getBool("DISCORD", "DTMF", false);
+    const bool discordAuto = config.getBool("DISCORD", "ENABLED", false);
+    const bool discordCapable =
+        discordConfigured && (discordDtmf || discordAuto);
+    if (!discordConfigured && (discordDtmf || discordAuto)) {
+      logger.warning(
+          "Discord DTMF/auto-join is enabled but TOKEN, GUILD_ID, or "
+          "CHANNEL_ID is missing");
+    }
     if (linkRequested && echoCapable) {
       logger.error("LINK and ECHOLINK cannot be enabled at the same time");
+      winrt::uninit_apartment();
+      return 2;
+    }
+    if (discordCapable && linkRequested) {
+      logger.error("DISCORD cannot be combined with LINK yet");
+      winrt::uninit_apartment();
+      return 2;
+    }
+    if (discordAuto && echoAuto) {
+      logger.error("DISCORD/ENABLED and ECHOLINK auto-connect cannot run together");
       winrt::uninit_apartment();
       return 2;
     }
@@ -429,6 +457,11 @@ int main(int argc, char **argv) {
               return;
             }
             if (connect) {
+              if (discord && discord->isVoiceReady()) {
+                logger.error(
+                    "Leave the Discord voice channel before using EchoLink");
+                return;
+              }
               const std::string dialTarget =
                   target.empty() ? echoTarget : target;
               std::string echoError;
@@ -441,7 +474,35 @@ int main(int argc, char **argv) {
             }
           });
     }
+    if (discordCapable) {
+      discord = std::make_unique<vr76::discord::DiscordClient>(
+          logger, config, *node);
+      node->setDiscordControl([&](bool connect) {
+        if (!discord) {
+          return;
+        }
+        if (connect) {
+          if (echoLink && echoLink->isConnected()) {
+            logger.error(
+                "Disconnect EchoLink before joining the Discord voice channel");
+            return;
+          }
+          std::string discordError;
+          if (!discord->join(discordError)) {
+            logger.error("Discord join failed: " + discordError);
+          }
+        } else {
+          discord->leave();
+        }
+      });
+    }
     node->start();
+    if (discord) {
+      std::string discordError;
+      if (!discord->start(discordError)) {
+        logger.error("Could not start Discord client: " + discordError);
+      }
+    }
     if (link) {
       std::string linkError;
       if (!link->start(linkHost, linkPort, linkKey,
@@ -573,6 +634,9 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (discord) {
+    discord->stop();
+  }
   if (echoLink) {
     echoLink->stop();
   }

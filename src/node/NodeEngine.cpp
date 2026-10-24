@@ -89,18 +89,19 @@ NodeEngine::NodeEngine(Logger &logger, const Config &config,
   std::map<std::string, NodeCommand> commands;
   const std::string &commandPrefix = prefixText;
   const std::string &commandSuffix = suffixText;
-  const std::string defaults[6] = {"1", "2", "3", "0", "4", "5"};
-  const NodeCommand defaultCommands[6] = {
+  const std::string defaults[8] = {"1", "2", "3", "0", "4", "5", "6", "7"};
+  const NodeCommand defaultCommands[8] = {
       NodeCommand::ParrotToggle, NodeCommand::Help, NodeCommand::Ident,
       NodeCommand::Reset, NodeCommand::EchoLinkConnect,
-      NodeCommand::EchoLinkDisconnect};
-  for (size_t i = 0; i < 6; ++i) {
+      NodeCommand::EchoLinkDisconnect, NodeCommand::DiscordJoin,
+      NodeCommand::DiscordLeave};
+  for (size_t i = 0; i < 8; ++i) {
     const std::string key = commandPrefix + defaults[i] + commandSuffix;
     commands[key] = defaultCommands[i];
   }
   // Allow [DTMF] to override or add commands. The documented form is
   // "*1=PARROT"; a full "*1#=PARROT" key is also accepted.
-  for (size_t i = 0; i < 6; ++i) {
+  for (size_t i = 0; i < 8; ++i) {
     std::string value =
         config_.getString("DTMF", commandPrefix + defaults[i], "");
     if (value.empty()) {
@@ -288,8 +289,12 @@ void NodeEngine::onAudioPcm(const std::vector<int16_t> &pcm, bool transmit) {
   if (commandComplete) {
     logger_.info("DTMF command: " + code);
   }
-  if (rxAudioCallback_ && !uplinkPcm.empty()) {
-    rxAudioCallback_(uplinkPcm);
+  if (!uplinkPcm.empty()) {
+    for (const auto &callback : rxAudioCallbacks_) {
+      if (callback) {
+        callback(uplinkPcm);
+      }
+    }
   }
 
   txCv_.notify_all();
@@ -511,6 +516,22 @@ void NodeEngine::executeCommand(NodeCommand command,
       echoLinkControl_(false, "");
     }
     enqueueClip(ackClip_, "echolink", Clock::now());
+    break;
+  case NodeCommand::DiscordJoin:
+    logger_.info("DTMF Discord join");
+    if (discordControl_) {
+      discordControl_(true);
+    } else {
+      logger_.warning("Discord control is not configured");
+    }
+    enqueueClip(ackClip_, "discord", Clock::now());
+    break;
+  case NodeCommand::DiscordLeave:
+    logger_.info("DTMF Discord leave");
+    if (discordControl_) {
+      discordControl_(false);
+    }
+    enqueueClip(ackClip_, "discord", Clock::now());
     break;
   case NodeCommand::None:
     break;

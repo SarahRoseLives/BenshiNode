@@ -21,7 +21,7 @@ constexpr size_t kFrameSamples = 160; // 20 ms at 8 kHz
 
 LinkClient::LinkClient(Logger &logger, NodeEngine &node)
     : logger_(logger), node_(node) {
-  node_.setRxAudioCallback(
+  node_.addRxAudioCallback(
       [this](const std::vector<int16_t> &pcm) { pushUplinkPcm(pcm); });
 }
 

@@ -28,6 +28,7 @@ public:
   using RxAudioCallback = std::function<void(const std::vector<int16_t> &)>;
   using EchoLinkControl =
       std::function<void(bool connect, const std::string &target)>;
+  using DiscordControl = std::function<void(bool connect)>;
 
   void start();
   void stop();
@@ -36,11 +37,18 @@ public:
   void onAudioPcm(const std::vector<int16_t> &pcm, bool transmit);
   void onAudioEnd(bool transmit);
 
+  void addRxAudioCallback(RxAudioCallback callback) {
+    rxAudioCallbacks_.push_back(std::move(callback));
+  }
   void setRxAudioCallback(RxAudioCallback callback) {
-    rxAudioCallback_ = std::move(callback);
+    rxAudioCallbacks_.clear();
+    addRxAudioCallback(std::move(callback));
   }
   void setEchoLinkControl(EchoLinkControl callback) {
     echoLinkControl_ = std::move(callback);
+  }
+  void setDiscordControl(DiscordControl callback) {
+    discordControl_ = std::move(callback);
   }
   void enqueueNetworkAudio(const std::vector<int16_t> &pcm, bool end);
   bool linkAudioActive() const { return networkActive_.load(); }
@@ -118,8 +126,9 @@ private:
   size_t networkLimitSamples_ = 32000 * 5;
   std::atomic<bool> txActive_{false};
   std::atomic<bool> cancelTx_{false};
-  RxAudioCallback rxAudioCallback_;
+  std::vector<RxAudioCallback> rxAudioCallbacks_;
   EchoLinkControl echoLinkControl_;
+  DiscordControl discordControl_;
 
   bool parrotEnabled_ = false;
   bool parrotAuto_ = false;
