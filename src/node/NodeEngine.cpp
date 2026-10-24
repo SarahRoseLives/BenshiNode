@@ -81,8 +81,8 @@ NodeEngine::NodeEngine(Logger &logger, const Config &config,
   const char suffix = suffixText[0];
   commandParser_.setPrefix(prefix);
   commandParser_.setSuffix(suffix);
-  commandParser_.setDialPrefix(
-      config_.getString("ECHOLINK", "DTMF_PREFIX", "4"));
+  dialPrefix_ = config_.getString("ECHOLINK", "DTMF_PREFIX", "4");
+  commandParser_.setDialPrefix(dialPrefix_);
 
   std::map<std::string, NodeCommand> commands;
   const std::string &commandPrefix = prefixText;
@@ -114,6 +114,7 @@ NodeEngine::NodeEngine(Logger &logger, const Config &config,
     }
   }
   commandParser_.setCommands(commands);
+  commandCodes_ = commands;
 }
 
 NodeEngine::~NodeEngine() { stop(); }
@@ -581,9 +582,49 @@ void NodeEngine::handleRxEnd(std::vector<int16_t> run, bool hadCommand,
   }
 }
 
+void NodeEngine::runCommand(NodeCommand command, const std::string &arg) {
+  executeCommand(command, {}, arg);
+}
+
+bool NodeEngine::submitDtmfCode(const std::string &code) {
+  if (code.empty()) {
+    return false;
+  }
+  const auto it = commandCodes_.find(code);
+  if (it != commandCodes_.end()) {
+    runCommand(it->second);
+    return true;
+  }
+  if (!dialPrefix_.empty() && code.size() > dialPrefix_.size() + 1 &&
+      code.compare(0, dialPrefix_.size(), dialPrefix_) == 0 &&
+      code.back() == '#') {
+    const std::string digits =
+        code.substr(dialPrefix_.size(), code.size() - dialPrefix_.size() - 1);
+    if (!digits.empty() &&
+        std::all_of(digits.begin(), digits.end(), [](unsigned char c) {
+          return std::isdigit(c) != 0;
+        })) {
+      runCommand(NodeCommand::EchoLinkDial, digits);
+      return true;
+    }
+  }
+  return false;
+}
+
+RadioStatus NodeEngine::radioStatus() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return status_;
+}
+
+bool NodeEngine::parrotEnabled() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return parrotEnabled_;
+}
+
 void NodeEngine::executeCommand(NodeCommand command,
                                 const std::vector<int16_t> &run,
                                 const std::string &commandArg) {
+  std::lock_guard<std::mutex> commandLock(commandMutex_);
   switch (command) {
   case NodeCommand::ParrotToggle: {
     bool enabled = false;

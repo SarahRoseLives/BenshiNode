@@ -1,7 +1,9 @@
 #include "Logger.h"
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <ctime>
 #include <iomanip>
@@ -65,6 +67,18 @@ void Logger::write(LogLevel level, const std::string &message) {
   if (file_.is_open()) {
     file_ << line << std::endl;
   }
+  recent_.push_back(line);
+  while (recent_.size() > 500) {
+    recent_.pop_front();
+  }
+}
+
+std::vector<std::string> Logger::recent(size_t maximum) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const size_t count = std::min(maximum, recent_.size());
+  return std::vector<std::string>(recent_.end() -
+                                      static_cast<std::ptrdiff_t>(count),
+                                  recent_.end());
 }
 
 const char *logLevelName(LogLevel level) {

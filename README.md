@@ -25,6 +25,7 @@ Working:
 - Outbound EchoLink with directory lookup, GSM 06.10 audio, and DTMF dialing
 - Optional Discord voice-channel bridge with DTMF join/leave control
 - Optional Piper female voice for help, callsign spelling, and command prompts
+- Native Windows GUI with status, DTMF keypad, EchoLink/Discord controls, and live log
 - Windows build and automated protocol/codec tests
 
 Not yet implemented:
@@ -79,7 +80,29 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-The executable is `build\Release\BenshiNode.exe`.
+The executables are `build\Release\BenshiNode.exe` (console) and
+`build\Release\BenshiNodeGUI.exe` (native GUI launcher).
+
+## Quick start
+
+After building:
+
+```powershell
+# Create BenshiNode.ini and optionally install the female Piper voice
+.\tools\setup.cmd -WithPiper
+
+# Edit RADIO/MAC, NODE/CALLSIGN, and any optional service credentials
+notepad BenshiNode.ini
+
+# Start the native GUI
+.\build\Release\BenshiNodeGUI.exe
+```
+
+The `.cmd` wrappers use `-ExecutionPolicy Bypass` so they also work when
+PowerShell script execution is disabled by local policy.
+
+`BenshiNodeGUI.exe` starts `BenshiNode.exe --gui` without a console window.
+You can also run `.\build\Release\BenshiNode.exe --gui` directly.
 
 ## Find the radio
 
@@ -157,12 +180,32 @@ the selected channel, frequency, name, and APRS state.
 # Force the radio out of transmit
 .\build\Release\BenshiNode.exe --unkey
 
-# Run the simplex node
+# Run the simplex node in the console
 .\build\Release\BenshiNode.exe
+
+# Run the native GUI
+.\build\Release\BenshiNode.exe --gui
 ```
 
 Use `--config <file>` for a different configuration and `--verbose` for debug
 logging. Press Ctrl+C to stop.
+
+## Native GUI
+
+`BenshiNodeGUI.exe` is the no-console launcher for the native Windows window.
+It starts the same node engine and configuration as the console version.
+
+The window shows radio connection, channel, RSSI, TX/RX state, Piper status,
+EchoLink and Discord state, and a live log. It provides quick command buttons
+for help (`0#`), identify (`3#`), parrot (`1#`), reset (`9#`), force unkey, and
+node stop, plus an on-screen DTMF keypad and EchoLink dial field. All controls
+use the same no-star command codes as the radio keypad.
+
+The **Settings** button opens the complete `BenshiNode.ini` in a native editor.
+Every section and key can be changed there, including radio, DTMF, Piper,
+EchoLink, Discord, link, logging, and advanced options. Saving creates a
+`BenshiNode.ini.bak` backup first. Restart BenshiNode after saving for changes
+to take effect.
 
 ## DTMF commands
 
@@ -282,11 +325,23 @@ following EchoLink and national regulations.
 
 BenshiNode can use Piper to speak help, station identification, startup, and
 command acknowledgements. The default voice is the clear female
-`en_US-lessac-medium` model. Install the runtime and voice with:
+`en_US-lessac-medium` model.
+
+No Python installation is required. The Windows Piper download is a native C++
+executable using ONNX Runtime and espeak-ng. Install the runtime and voice with:
 
 ```powershell
-.\tools\install-piper.ps1
+.\tools\install-piper.cmd
 ```
+
+or install the config, Piper runtime, and voice together:
+
+```powershell
+.\tools\setup.cmd -WithPiper
+```
+
+The `.ps1` scripts can also be run directly with
+`powershell -ExecutionPolicy Bypass -File ...` if your policy blocks scripts.
 
 Piper is downloaded to `tools\piper` and is not committed to git. Then add:
 

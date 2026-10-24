@@ -114,10 +114,12 @@ if(WIN32)
     src/echolink/EchoLinkClient.cpp
     src/discord/DiscordClient.cpp
     src/tts/PiperTts.cpp
+    src/gui/NativeGui.cpp
+    src/gui/ConfigEditor.cpp
   )
   target_include_directories(BenshiNode PRIVATE ${_winrt_include})
   target_link_libraries(BenshiNode PRIVATE benshinode_core gsm dpp windowsapp
-                                               ole32 ws2_32 bcrypt)
+                                               ole32 ws2_32 bcrypt user32 gdi32)
   target_compile_options(BenshiNode PRIVATE /bigobj)
   file(GLOB DPP_RUNTIME_DLLS "${DPP_ROOT}/bin/*.dll")
   foreach(DPP_DLL ${DPP_RUNTIME_DLLS})
@@ -131,6 +133,13 @@ if(WIN32)
             "${DPP_ROOT}/ca-bundle.crt" "$<TARGET_FILE_DIR:BenshiNode>"
   )
   set_target_properties(BenshiNode PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  )
+
+  add_executable(BenshiNodeGUI WIN32 src/gui/GuiLauncher.cpp)
+  add_dependencies(BenshiNodeGUI BenshiNode)
+  target_link_libraries(BenshiNodeGUI PRIVATE user32)
+  set_target_properties(BenshiNodeGUI PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   )
 else()

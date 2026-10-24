@@ -3,6 +3,7 @@
 #include "bluetooth/RfcommChannel.h"
 #include "discord/DiscordClient.h"
 #include "echolink/EchoLinkClient.h"
+#include "gui/NativeGui.h"
 #include "link/LinkClient.h"
 #include "link/LinkServer.h"
 #include "link/LinkSocket.h"
@@ -23,6 +24,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +57,7 @@ void printUsage() {
       << "  --server             Run as a link server/reflector (no radio)\n"
       << "  --connect <host[:port]>  Link this node to a server\n"
       << "  --echolink <node>    Connect to an EchoLink node (explicit)\n"
+      << "  --gui                Open the native BenshiNode window\n"
       << "  --vfo-test           Try FREQ_MODE_SET_PAR flag variants\n"
       << "  --restore-aprs       Restore channel 31 to APRS at 144.390 MHz\n"
       << "  --verbose            Enable debug logging\n"
@@ -121,6 +124,7 @@ int main(int argc, char **argv) {
   bool restoreAprs = false;
   bool server = false;
   bool verbose = false;
+  bool gui = false;
   std::string monitorWav;
   std::string connectTarget;
   std::string echoLinkTarget;
@@ -152,6 +156,8 @@ int main(int argc, char **argv) {
       connectTarget = argv[++i];
     } else if (arg == "--echolink" && i + 1 < argc) {
       echoLinkTarget = argv[++i];
+    } else if (arg == "--gui") {
+      gui = true;
     } else if (arg == "--vfo-test") {
       vfoTest = true;
     } else if (arg == "--restore-aprs") {
@@ -356,6 +362,9 @@ int main(int argc, char **argv) {
   std::unique_ptr<vr76::link::LinkClient> link;
   std::unique_ptr<vr76::echolink::EchoLinkClient> echoLink;
   std::unique_ptr<vr76::discord::DiscordClient> discord;
+  std::unique_ptr<vr76::gui::NativeGui> nativeGui;
+  std::mutex guiMutex;
+  std::vector<vr76::gui::Action> guiActions;
   std::string linkHost;
   uint16_t linkPort = vr76::link::kDefaultControlPort;
   std::string linkKey;
@@ -519,6 +528,50 @@ int main(int argc, char **argv) {
     if (echoDtmf && !echoAuto) {
       logger.info("EchoLink idle. Send 4# to connect, 5# to disconnect.");
     }
+
+    if (gui) {
+      nativeGui = std::make_unique<vr76::gui::NativeGui>(
+          [&]() {
+            vr76::gui::State state;
+            state.callsign = config.getString("NODE", "CALLSIGN", "");
+            const vr76::RadioStatus status = node->radioStatus();
+            state.connected = session.isConnected();
+            state.radioReady = node->radioReady();
+            state.powerOn = status.powerOn;
+            state.inTx = status.inTx;
+            state.inRx = status.inRx;
+            state.squelch = status.squelchOpen;
+            state.rssi = status.rssi;
+            state.channel = status.channelId;
+            state.tx = node->txActive();
+            state.parrot = node->parrotEnabled();
+            state.linkAudio = node->linkAudioActive();
+            state.discord = discord && discord->isVoiceReady();
+            state.discordConfigured = static_cast<bool>(discord);
+            state.echolink = echoLink && echoLink->isConnected();
+            state.echolinkConfigured = static_cast<bool>(echoLink);
+            state.link = link && link->isConnected();
+            state.linkConfigured = static_cast<bool>(link);
+            state.voice = config.getBool("PIPER", "ENABLED", false);
+            return state;
+          },
+          [&]() { return logger.recent(200); },
+          [&](const vr76::gui::Action &action) {
+            std::lock_guard<std::mutex> lock(guiMutex);
+            guiActions.push_back(action);
+          },
+          [&]() { g_stop.store(true); }, config.path());
+      std::string guiError;
+      if (!nativeGui->start(guiError)) {
+        logger.error("Could not start native GUI: " + guiError);
+        nativeGui.reset();
+      } else {
+        const HWND console = GetConsoleWindow();
+        if (console != nullptr) {
+          ShowWindow(console, SW_HIDE);
+        }
+      }
+    }
   } else {
     session.setStatusCallback([&](const vr76::RadioStatus &status) {
       logger.info("Radio status: power=" + std::string(status.powerOn ? "on" : "off") +
@@ -553,6 +606,46 @@ int main(int argc, char **argv) {
       []() { std::cout << "Radio disconnected\n"; });
 
   const int retryMs = std::max(500, config.getInt("RADIO", "CONNECT_RETRY_MS", 5000));
+  auto processGuiActions = [&]() {
+    std::vector<vr76::gui::Action> actions;
+    {
+      std::lock_guard<std::mutex> lock(guiMutex);
+      actions.swap(guiActions);
+    }
+    for (const vr76::gui::Action &action : actions) {
+      std::string actionError;
+      if (action.type == "dtmf") {
+        if (!node->submitDtmfCode(action.value)) {
+          logger.warning("GUI: unknown DTMF code " + action.value);
+        }
+      } else if (action.type == "help") {
+        node->runCommand(vr76::NodeCommand::Help);
+      } else if (action.type == "ident") {
+        node->runCommand(vr76::NodeCommand::Ident);
+      } else if (action.type == "parrot") {
+        node->runCommand(vr76::NodeCommand::ParrotToggle);
+      } else if (action.type == "reset") {
+        node->runCommand(vr76::NodeCommand::Reset);
+      } else if (action.type == "echolink_connect") {
+        node->runCommand(vr76::NodeCommand::EchoLinkConnect);
+      } else if (action.type == "echolink_disconnect") {
+        node->runCommand(vr76::NodeCommand::EchoLinkDisconnect);
+      } else if (action.type == "echolink_dial") {
+        node->runCommand(vr76::NodeCommand::EchoLinkDial, action.value);
+      } else if (action.type == "discord_join") {
+        node->runCommand(vr76::NodeCommand::DiscordJoin);
+      } else if (action.type == "discord_leave") {
+        node->runCommand(vr76::NodeCommand::DiscordLeave);
+      } else if (action.type == "unkey") {
+        if (!session.forceUnkey(actionError)) {
+          logger.warning("GUI unkey failed: " + actionError);
+        }
+      } else if (action.type == "shutdown") {
+        logger.info("GUI requested shutdown");
+        g_stop.store(true);
+      }
+    }
+  };
 
   while (!g_stop.load()) {
     if (!session.connect(error)) {
@@ -625,6 +718,9 @@ int main(int argc, char **argv) {
     } else {
       logger.info("Node running. Press Ctrl+C to stop.");
       while (!g_stop.load() && session.isConnected()) {
+        if (nativeGui) {
+          processGuiActions();
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
     }
@@ -640,6 +736,9 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (nativeGui) {
+    nativeGui->stop();
+  }
   if (discord) {
     discord->stop();
   }

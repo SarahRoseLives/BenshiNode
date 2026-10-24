@@ -55,6 +55,12 @@ public:
   }
   void enqueueNetworkAudio(const std::vector<int16_t> &pcm, bool end);
   bool speakPrompt(const std::string &key);
+  void runCommand(NodeCommand command, const std::string &arg = "");
+  bool submitDtmfCode(const std::string &code);
+  RadioStatus radioStatus() const;
+  bool parrotEnabled() const;
+  bool txActive() const { return txActive_.load(); }
+  bool radioReady() const { return radioReady_.load(); }
   bool linkAudioActive() const { return networkActive_.load(); }
 
 private:
@@ -161,6 +167,9 @@ private:
   std::string callsign_;
   std::string wavDir_;
 
+  std::mutex commandMutex_;
+  std::map<std::string, NodeCommand> commandCodes_;
+  std::string dialPrefix_;
   std::mutex voiceMutex_;
   std::map<std::string, std::vector<int16_t>> voiceClips_;
   std::vector<int16_t> identClip_;
