@@ -113,6 +113,7 @@ if(WIN32)
     src/link/LinkClient.cpp
     src/echolink/EchoLinkClient.cpp
     src/discord/DiscordClient.cpp
+    src/tts/PiperTts.cpp
   )
   target_include_directories(BenshiNode PRIVATE ${_winrt_include})
   target_link_libraries(BenshiNode PRIVATE benshinode_core gsm dpp windowsapp

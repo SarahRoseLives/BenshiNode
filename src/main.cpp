@@ -42,7 +42,7 @@ BOOL WINAPI consoleHandler(DWORD type) {
 
 void printUsage() {
   std::cout
-      << "BenshiNode - VR-N76 simplex node\n\n"
+      << "BenshiNode - VR-N76/VR-N7600 simplex node\n\n"
       << "Usage: BenshiNode [options]\n\n"
       << "  --config <file>      Configuration file (default: BenshiNode.ini)\n"
       << "  --list               List paired Bluetooth devices\n"
@@ -223,7 +223,7 @@ int main(int argc, char **argv) {
     } else {
       for (const auto &device : devices) {
         std::cout << device.address << "  " << device.name
-                  << (device.radioCandidate ? "  [VR-N76 candidate]" : "")
+                  << (device.radioCandidate ? "  [radio candidate]" : "")
                   << "\n";
       }
     }
@@ -517,7 +517,7 @@ int main(int argc, char **argv) {
       }
     }
     if (echoDtmf && !echoAuto) {
-      logger.info("EchoLink idle. Send *4# to connect, *5# to disconnect.");
+      logger.info("EchoLink idle. Send 4# to connect, 5# to disconnect.");
     }
   } else {
     session.setStatusCallback([&](const vr76::RadioStatus &status) {
@@ -559,6 +559,9 @@ int main(int argc, char **argv) {
       logger.error(error);
       waitWhile(true, retryMs);
       continue;
+    }
+    if (node) {
+      node->setRadioReady(true);
     }
 
     if (testTx) {
@@ -626,6 +629,9 @@ int main(int argc, char **argv) {
       }
     }
 
+    if (node) {
+      node->setRadioReady(false);
+    }
     session.disconnect();
     if (!g_stop.load()) {
       logger.warning("Connection lost; reconnecting in " +

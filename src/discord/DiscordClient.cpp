@@ -191,7 +191,7 @@ bool DiscordClient::start(std::string &error) {
     bot_->start(dpp::st_return);
     running_.store(true);
     transmitThread_ = std::thread([this]() { transmitLoop(); });
-    logger_.info("Discord integration started; use *6# to join, *7# to leave");
+    logger_.info("Discord integration started; use 6# to join, 7# to leave");
     return true;
   } catch (const std::exception &e) {
     error = std::string("Discord startup failed: ") + e.what();

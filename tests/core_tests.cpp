@@ -39,7 +39,7 @@ void testConfig() {
   {
     std::ofstream out(path);
     out << "[NODE]\nCALLSIGN=N0CALL\nPARROT_MODE=dtmf\nTX_TIMEOUT_SEC=120\n"
-        << "COURTESY_TONE=1\n[DTMF]\n*1=PARROT\n";
+        << "COURTESY_TONE=1\n[DTMF]\n1=PARROT\n";
   }
 
   Config config;
@@ -48,7 +48,7 @@ void testConfig() {
   check(config.getString("NODE", "CALLSIGN") == "N0CALL", "config callsign");
   check(config.getInt("NODE", "TX_TIMEOUT_SEC", 0) == 120, "config int");
   check(config.getBool("NODE", "COURTESY_TONE", false), "config bool");
-  check(config.getString("DTMF", "*1") == "PARROT", "config dtmf key");
+  check(config.getString("DTMF", "1") == "PARROT", "config dtmf key");
   std::filesystem::remove(path);
 }
 
@@ -308,34 +308,39 @@ void testGsmCodec() {
 
 void testCommands() {
   std::map<std::string, vr76::NodeCommand> commands;
-  commands["*1#"] = vr76::NodeCommand::ParrotToggle;
-  commands["*2#"] = vr76::NodeCommand::Help;
-  commands["*6#"] = vr76::NodeCommand::DiscordJoin;
-  commands["*7#"] = vr76::NodeCommand::DiscordLeave;
+  commands["0#"] = vr76::NodeCommand::Help;
+  commands["1#"] = vr76::NodeCommand::ParrotToggle;
+  commands["6#"] = vr76::NodeCommand::DiscordJoin;
+  commands["7#"] = vr76::NodeCommand::DiscordLeave;
+  commands["9#"] = vr76::NodeCommand::Reset;
   vr76::DtmfCommandParser parser;
+  parser.setPrefix('\0');
   parser.setCommands(commands);
 
   vr76::NodeCommand command = vr76::NodeCommand::None;
   std::string code;
-  check(!parser.feed('*', command, code), "dtmf prefix not complete");
   check(!parser.feed('1', command, code), "dtmf digit not complete");
   check(parser.feed('#', command, code), "dtmf command complete");
-  check(code == "*1#", "dtmf command code");
+  check(code == "1#", "dtmf command code");
   check(command == vr76::NodeCommand::ParrotToggle, "dtmf command value");
 
-  check(parser.feed('*', command, code) == false, "dtmf restart prefix");
-  check(parser.feed('9', command, code) == false, "dtmf unknown digit");
+  check(parser.feed('8', command, code) == false, "dtmf unknown digit");
   check(parser.feed('#', command, code), "dtmf unknown complete");
   check(command == vr76::NodeCommand::None, "dtmf unknown yields none");
 
-  check(parser.feed('*', command, code) == false, "discord join prefix");
   check(parser.feed('6', command, code) == false, "discord join digit");
   check(parser.feed('#', command, code), "discord join complete");
   check(command == vr76::NodeCommand::DiscordJoin, "discord join command");
-  check(parser.feed('*', command, code) == false, "discord leave prefix");
   check(parser.feed('7', command, code) == false, "discord leave digit");
   check(parser.feed('#', command, code), "discord leave complete");
   check(command == vr76::NodeCommand::DiscordLeave, "discord leave command");
+
+  check(parser.feed('0', command, code) == false, "help digit");
+  check(parser.feed('#', command, code), "help complete");
+  check(command == vr76::NodeCommand::Help, "help command");
+  check(parser.feed('9', command, code) == false, "reset digit");
+  check(parser.feed('#', command, code), "reset complete");
+  check(command == vr76::NodeCommand::Reset, "reset command");
 
   vr76::NodeCommand parsed = vr76::NodeCommand::None;
   check(vr76::parseNodeCommand("DISCORD", parsed), "discord command parse");
@@ -345,14 +350,21 @@ void testCommands() {
   check(parsed == vr76::NodeCommand::DiscordLeave,
         "discord leave command value");
 
-  parser.setDialPrefix("*4");
-  const std::string dial = "*4179729#";
+  parser.setDialPrefix("4");
+  const std::string dial = "4179729#";
   for (size_t i = 0; i + 1 < dial.size(); ++i) {
     check(!parser.feed(dial[i], command, code), "dtmf dial in progress");
   }
   check(parser.feed('#', command, code), "dtmf dial complete");
   check(command == vr76::NodeCommand::EchoLinkDial, "dtmf dial command");
   check(code == "179729", "dtmf dial address");
+
+  vr76::DtmfCommandParser prefixed;
+  prefixed.setCommands(commands);
+  check(!prefixed.feed('*', command, code), "prefixed command prefix");
+  check(!prefixed.feed('1', command, code), "prefixed command digit");
+  check(prefixed.feed('#', command, code), "prefixed command complete");
+  check(command == vr76::NodeCommand::None, "prefixed key is not a command");
 }
 
 } // namespace

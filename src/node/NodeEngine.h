@@ -6,6 +6,7 @@
 #include "node/DtmfDecoder.h"
 #include "node/ToneGenerator.h"
 #include "radio/RadioSession.h"
+#include "tts/PiperTts.h"
 
 #include <atomic>
 #include <chrono>
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -36,6 +38,7 @@ public:
   void onRadioStatus(const RadioStatus &status);
   void onAudioPcm(const std::vector<int16_t> &pcm, bool transmit);
   void onAudioEnd(bool transmit);
+  void setRadioReady(bool ready);
 
   void addRxAudioCallback(RxAudioCallback callback) {
     rxAudioCallbacks_.push_back(std::move(callback));
@@ -51,6 +54,7 @@ public:
     discordControl_ = std::move(callback);
   }
   void enqueueNetworkAudio(const std::vector<int16_t> &pcm, bool end);
+  bool speakPrompt(const std::string &key);
   bool linkAudioActive() const { return networkActive_.load(); }
 
 private:
@@ -82,6 +86,9 @@ private:
   void clearTxQueueLocked();
 
   void loadClips();
+  void loadVoicePrompts();
+  std::string voicePromptText(const std::string &key) const;
+  std::vector<int16_t> voiceClip(const std::string &key);
   std::vector<int16_t> applyGain(const std::vector<int16_t> &pcm,
                                  double gainDb) const;
   static double rmsDb(const int16_t *samples, size_t count);
@@ -89,8 +96,11 @@ private:
   Logger &logger_;
   const Config &config_;
   RadioSession &session_;
+  PiperTts piper_;
 
   std::atomic<bool> running_{false};
+  std::atomic<bool> radioReady_{false};
+  bool startupPromptPlayed_ = false;
   std::thread timerThread_;
   std::thread txThread_;
 
@@ -151,6 +161,8 @@ private:
   std::string callsign_;
   std::string wavDir_;
 
+  std::mutex voiceMutex_;
+  std::map<std::string, std::vector<int16_t>> voiceClips_;
   std::vector<int16_t> identClip_;
   std::vector<int16_t> helpClip_;
   std::vector<int16_t> ackClip_;

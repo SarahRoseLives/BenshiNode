@@ -1,10 +1,10 @@
 # BenshiNode
 
-BenshiNode is a Windows C++ simplex radio node for the Vero VR-N76 and
-compatible Benshi Bluetooth handhelds. It turns the radio into a small
-SVXLink-style voice node with DTMF control, parrot mode, CW identification,
-BenshiNode linking, outbound EchoLink, and a bidirectional Discord voice
-bridge.
+BenshiNode is a Windows C++ simplex radio node for the Vero VR-N76 handheld,
+the VR-N7600 mobile, and compatible Benshi Bluetooth radios. It turns the radio
+into a small SVXLink-style voice node with DTMF control, parrot mode, CW or
+spoken identification, BenshiNode linking, outbound EchoLink, and a
+bidirectional Discord voice bridge.
 
 Radio callsign used by the current configuration: **N0CALL**.
 
@@ -12,10 +12,10 @@ Radio callsign used by the current configuration: **N0CALL**.
 
 Working:
 
-- VR-N76 Bluetooth Classic connection (control + SBC audio)
+- VR-N76 / VR-N7600 Bluetooth Classic connection (control + SBC audio)
 - Radio RX/TX audio, squelch/VOX, hang time, TX timeout and forced unkey
 - DTMF decoding with DTMF audio muted from parrot/link recordings
-- Parrot/repeat with `*1#`
+- Parrot/repeat with `1#`
 - CW or WAV station identification
 - Optional courtesy tone
 - Single/dual-watch configuration and memory-channel selection
@@ -24,6 +24,7 @@ Working:
 - BenshiNode link client (`--connect`)
 - Outbound EchoLink with directory lookup, GSM 06.10 audio, and DTMF dialing
 - Optional Discord voice-channel bridge with DTMF join/leave control
+- Optional Piper female voice for help, callsign spelling, and command prompts
 - Windows build and automated protocol/codec tests
 
 Not yet implemented:
@@ -45,7 +46,8 @@ configured.
 - Windows 10 or 11, x64
 - Visual Studio 2022 C++ build tools
 - CMake 3.20 or newer
-- A paired VR-N76 / compatible Benshi radio
+- A paired VR-N76, VR-N7600, or compatible Benshi radio
+- Optional: Piper and a female voice model for spoken prompts
 
 The radio exposes two Bluetooth Classic RFCOMM services:
 
@@ -85,7 +87,7 @@ The executable is `build\Release\BenshiNode.exe`.
 .\build\Release\BenshiNode.exe --list
 ```
 
-VR-N76 candidates are marked. Put the control device's address in the
+Radio candidates are marked. Put the control device's address in the
 configuration file.
 
 ## Configuration
@@ -109,6 +111,8 @@ CONNECT_RETRY_MS=5000
 
 [NODE]
 CALLSIGN=N0CALL
+DTMF_PREFIX=          ; empty = commands like 0#, 1#, 9#
+DTMF_SUFFIX=#
 PARROT_MODE=dtmf      ; off | dtmf | auto
 SQUELCH_MODE=auto     ; radio | vox | auto
 VOX_THRESHOLD_DB=-38
@@ -162,22 +166,23 @@ logging. Press Ctrl+C to stop.
 
 ## DTMF commands
 
-Default command form is `*<n>#`:
+Default command form is `<n>#` (no leading star):
 
 | Command | Action |
 | --- | --- |
-| `*1#` | Toggle parrot mode |
-| `*2#` | Play help (CW or `clips\help.wav`) |
-| `*3#` | Send ident now |
-| `*0#` | Reset/cancel pending transmissions |
-| `*4#` | Connect to the configured EchoLink node |
-| `*4<node>#` | Dial any EchoLink node, e.g. `*4179729#` |
-| `*5#` | Disconnect EchoLink |
-| `*6#` | Join the configured Discord voice channel |
-| `*7#` | Leave the Discord voice channel |
+| `1#` | Toggle parrot mode |
+| `0#` | Play spoken help, `clips\help.wav`, or CW help |
+| `3#` | Send ident now |
+| `9#` | Reset/cancel pending transmissions |
+| `4#` | Connect to the configured EchoLink node |
+| `4<node>#` | Dial any EchoLink node, e.g. `4179729#` |
+| `5#` | Disconnect EchoLink |
+| `6#` | Join the configured Discord voice channel |
+| `7#` | Leave the Discord voice channel |
 
-The EchoLink dial prefix is configurable with `[ECHOLINK] DTMF_PREFIX` and
-defaults to `*4`. DTMF tones are removed from parrot and network audio.
+Command `2#` is unused. The EchoLink dial prefix is configurable with
+`[ECHOLINK] DTMF_PREFIX` and defaults to `4`. DTMF tones are removed from parrot
+and network audio.
 
 ## Station identification
 
@@ -185,11 +190,13 @@ The ident clip is selected in this order:
 
 1. `clips\ident.wav`
 2. `clips\<CALLSIGN>.wav` (for example `clips\N0CALL.wav`)
-3. Generated CW from `CALLSIGN`
+3. Piper-spelled callsign, if `[PIPER] ENABLED=1` and `SPELL_CALLSIGN=1`
+4. Generated CW from `CALLSIGN`
 
-WAV files may be 8-bit or 16-bit PCM, mono or stereo, and are resampled to
-32 kHz. The radio still needs its own RF identification as required by local
-regulations.
+Piper spells the callsign as individual character clips, then inserts a short
+gap and plays them in sequence, SVXLink-style. WAV files may be 8-bit or 16-bit
+PCM, mono or stereo, and are resampled to 32 kHz. The radio still needs its own
+RF identification as required by local regulations.
 
 ## BenshiNode linking
 
@@ -244,7 +251,7 @@ RTP/RTCP QSO protocol, and GSM 06.10 audio.
 [ECHOLINK]
 ENABLED=0
 DTMF=1
-DTMF_PREFIX=*4
+DTMF_PREFIX=4
 CALLSIGN=AD8NT
 PASSWORD=your-echolink-password
 NAME=AD8NT
@@ -257,9 +264,9 @@ PORT_BASE=5198
 `ENABLED=0` means no EchoLink connection at startup. With `DTMF=1`, the node
 starts idle and waits for keypad commands:
 
-- `*4#` connects to `NODE`
-- `*4<node>#` dials any node
-- `*5#` disconnects
+- `4#` connects to `NODE`
+- `4<node>#` dials any node
+- `5#` disconnects
 
 `--echolink <node>` explicitly connects at startup.
 
@@ -270,6 +277,46 @@ implemented yet.
 EchoLink audio is sent in the clear. There is no encryption, and none is needed
 for amateur radio. Stations remain responsible for identification and for
 following EchoLink and national regulations.
+
+## Piper voice prompts
+
+BenshiNode can use Piper to speak help, station identification, startup, and
+command acknowledgements. The default voice is the clear female
+`en_US-lessac-medium` model. Install the runtime and voice with:
+
+```powershell
+.\tools\install-piper.ps1
+```
+
+Piper is downloaded to `tools\piper` and is not committed to git. Then add:
+
+```ini
+[PIPER]
+ENABLED=1
+EXE=tools\piper\piper.exe
+MODEL=tools\piper\voices\en_US-lessac-medium.onnx
+CACHE_DIR=tts-cache
+LENGTH_SCALE=1.0
+SENTENCE_SILENCE=0.05
+SPELL_CALLSIGN=1
+STARTUP_PROMPT=1
+TIMEOUT_MS=30000
+# HELP_TEXT=Custom help text.
+# STARTUP_TEXT=BenshiNode ready.
+```
+
+Generated WAV clips are cached in `tts-cache`. The first startup takes a few
+seconds while the cache is built; later startups reuse the cached clips. The
+cache is keyed by the voice model, pacing settings, and text, so changing a
+prompt generates only the new clip.
+
+Piper is optional. If it is disabled or unavailable, BenshiNode falls back to
+`clips\help.wav`/`clips\ident.wav`, CW, or the normal beep acknowledgements.
+The spoken callsign is assembled from cached letter and digit clips.
+
+Other Piper voices can be used by pointing `MODEL` at another `.onnx` model and
+placing its `.onnx.json` beside it. Piper and its voice models are downloaded
+separately and remain subject to their own licenses.
 
 ## Discord
 
@@ -294,15 +341,15 @@ audio.
 ```ini
 [DISCORD]
 ENABLED=0             ; 1 = join the voice channel at startup
-DTMF=1                ; allow *6# / *7# control
+DTMF=1                ; allow 6# / 7# control
 TOKEN=your-bot-token
 GUILD_ID=123456789012345678
 CHANNEL_ID=123456789012345678
 ```
 
 With `ENABLED=0` and `DTMF=1`, the bot connects to Discord but stays out of the
-voice channel until `*6#` is sent. Set `ENABLED=1` to auto-join at startup.
-`*7#` leaves the channel. Radio RX audio is resampled from 32 kHz to Discord's
+voice channel until `6#` is sent. Set `ENABLED=1` to auto-join at startup.
+`7#` leaves the channel. Radio RX audio is resampled from 32 kHz to Discord's
 48 kHz stereo, and Discord audio is mixed to mono and resampled back to 32 kHz
 for the radio.
 
@@ -333,6 +380,7 @@ src/
   link/        BenshiNode server/client, G.711, resampling, auth
   echolink/    EchoLink directory, SDES/RTP, GSM QSO
   discord/     D++ bot and Discord voice bridge
+  tts/         Piper prompt generation and callsign spelling
   util/        WAV output
 third_party/
   sbc/         Google libsbc (Apache-2.0)
@@ -353,6 +401,9 @@ config/        example node and server configurations
 - `third_party/dpp/ca-bundle.crt`: Mozilla CA root bundle from
   `https://curl.se/ca/cacert.pem`, MPL-2.0. BenshiNode points OpenSSL at this
   bundle so D++ can verify Discord's HTTPS certificates on Windows.
+- Piper and the `en_US-lessac-medium` voice are optional, downloaded by
+  `tools/install-piper.ps1`, and not part of this repository. See the Piper and
+  voice-model projects for their licenses.
 
 The `references/` directory used during development is not part of this
 repository.
@@ -376,6 +427,9 @@ repository.
   Discord; restrictive firewalls can prevent audio. If HTTPS fails with
   `Malformed HTTP response`, make sure `ca-bundle.crt` is next to
   `BenshiNode.exe` or set `SSL_CERT_FILE` to a valid CA bundle.
+- **Piper prompts are silent or CW**: check `PIPER/ENABLED`, `EXE`, and `MODEL`
+  paths. Run `piper.exe --help` and test a sentence through Piper manually.
+  Delete `tts-cache` to force regeneration after changing voice settings.
 
 ## Safety
 

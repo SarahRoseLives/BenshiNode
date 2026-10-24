@@ -79,14 +79,17 @@ bool DtmfCommandParser::feed(char digit, NodeCommand &command,
   completedCode.clear();
 
   if (buffer_.empty()) {
-    if (digit != prefix_) {
+    if (prefix_ != '\0' && digit != prefix_) {
+      return false;
+    }
+    if (prefix_ == '\0' && digit == suffix_) {
       return false;
     }
     buffer_.push_back(digit);
     return false;
   }
 
-  if (digit == prefix_ && buffer_.size() > 0) {
+  if (prefix_ != '\0' && digit == prefix_) {
     buffer_.assign(1, prefix_);
     return false;
   }

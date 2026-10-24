@@ -33,7 +33,8 @@ std::string pathJoin(const std::string &dir, const std::string &name) {
 
 NodeEngine::NodeEngine(Logger &logger, const Config &config,
                        RadioSession &session)
-    : logger_(logger), config_(config), session_(session) {
+    : logger_(logger), config_(config), session_(session),
+      piper_(logger, config) {
   callsign_ = config_.getString("NODE", "CALLSIGN", "");
   wavDir_ = config_.getString("NODE", "WAV_DIR", "clips");
 
@@ -71,36 +72,33 @@ NodeEngine::NodeEngine(Logger &logger, const Config &config,
   rxRunLimit_ = static_cast<size_t>(kSampleRate) *
                 static_cast<size_t>(maxParrotSeconds_);
 
-  std::string prefixText = config_.getString("NODE", "DTMF_PREFIX", "*");
-  if (prefixText.empty()) {
-    prefixText = "*";
-  }
+  std::string prefixText = config_.getString("NODE", "DTMF_PREFIX", "");
   std::string suffixText = config_.getString("NODE", "DTMF_SUFFIX", "#");
   if (suffixText.empty()) {
     suffixText = "#";
   }
-  const char prefix = prefixText[0];
+  const char prefix = prefixText.empty() ? '\0' : prefixText[0];
   const char suffix = suffixText[0];
   commandParser_.setPrefix(prefix);
   commandParser_.setSuffix(suffix);
   commandParser_.setDialPrefix(
-      config_.getString("ECHOLINK", "DTMF_PREFIX", "*4"));
+      config_.getString("ECHOLINK", "DTMF_PREFIX", "4"));
 
   std::map<std::string, NodeCommand> commands;
   const std::string &commandPrefix = prefixText;
   const std::string &commandSuffix = suffixText;
-  const std::string defaults[8] = {"1", "2", "3", "0", "4", "5", "6", "7"};
+  const std::string defaults[8] = {"0", "1", "3", "4", "5", "6", "7", "9"};
   const NodeCommand defaultCommands[8] = {
-      NodeCommand::ParrotToggle, NodeCommand::Help, NodeCommand::Ident,
-      NodeCommand::Reset, NodeCommand::EchoLinkConnect,
-      NodeCommand::EchoLinkDisconnect, NodeCommand::DiscordJoin,
-      NodeCommand::DiscordLeave};
+      NodeCommand::Help, NodeCommand::ParrotToggle, NodeCommand::Ident,
+      NodeCommand::EchoLinkConnect, NodeCommand::EchoLinkDisconnect,
+      NodeCommand::DiscordJoin, NodeCommand::DiscordLeave,
+      NodeCommand::Reset};
   for (size_t i = 0; i < 8; ++i) {
     const std::string key = commandPrefix + defaults[i] + commandSuffix;
     commands[key] = defaultCommands[i];
   }
   // Allow [DTMF] to override or add commands. The documented form is
-  // "*1=PARROT"; a full "*1#=PARROT" key is also accepted.
+  // "1=PARROT"; a full "1#=PARROT" key is also accepted.
   for (size_t i = 0; i < 8; ++i) {
     std::string value =
         config_.getString("DTMF", commandPrefix + defaults[i], "");
@@ -165,20 +163,156 @@ void NodeEngine::loadClips() {
   } else if (!callsignWav.empty() && std::filesystem::exists(callsignWav) &&
              WavClip::load(callsignWav, identClip_, error)) {
     logger_.info("Loaded ident clip: " + callsignWav);
-  } else if (!callsign_.empty()) {
-    identClip_ = ToneGenerator::cw(callsign_, cwWpm_, cwToneHz_, -12.0);
   }
 
   const std::string helpWav = pathJoin(wavDir_, "help.wav");
   if (std::filesystem::exists(helpWav) &&
       WavClip::load(helpWav, helpClip_, error)) {
     logger_.info("Loaded help clip: " + helpWav);
-  } else {
+  }
+
+  loadVoicePrompts();
+
+  if (identClip_.empty() && !callsign_.empty()) {
+    identClip_ = ToneGenerator::cw(callsign_, cwWpm_, cwToneHz_, -12.0);
+  }
+  if (helpClip_.empty()) {
     helpClip_ = ToneGenerator::cw("HELP", cwWpm_, cwToneHz_, -12.0);
   }
 
   ackClip_ = ToneGenerator::beep(1000.0, 100, -16.0);
   courtesyClip_ = ToneGenerator::beep(900.0, 120, -18.0);
+}
+
+void NodeEngine::loadVoicePrompts() {
+  if (!piper_.enabled()) {
+    return;
+  }
+
+  std::string error;
+  const bool spellCallsign =
+      config_.getBool("PIPER", "SPELL_CALLSIGN", true);
+  if (spellCallsign && identClip_.empty() && !callsign_.empty() &&
+      piper_.spellCallsign(callsign_, identClip_, error)) {
+    logger_.info("Generated spoken callsign: " + callsign_);
+  } else if (identClip_.empty() && !error.empty()) {
+    logger_.warning("Spoken callsign generation failed: " + error);
+  }
+
+  std::vector<PiperTts::Request> requests;
+  if (helpClip_.empty()) {
+    requests.push_back({"help", voicePromptText("help")});
+  }
+  for (const std::string &key :
+       {"startup", "parrot_on", "parrot_off", "reset", "echo_connecting",
+        "echo_disconnected", "discord_joining", "discord_left"}) {
+    requests.push_back({key, voicePromptText(key)});
+  }
+
+  PiperTts::Prompts prompts;
+  error.clear();
+  if (!piper_.synthesizeBatch(requests, prompts, error)) {
+    logger_.warning("Voice prompt generation failed: " + error);
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(voiceMutex_);
+  for (auto &[key, pcm] : prompts) {
+    voiceClips_[key] = std::move(pcm);
+  }
+  if (helpClip_.empty()) {
+    const auto help = voiceClips_.find("help");
+    if (help != voiceClips_.end()) {
+      helpClip_ = help->second;
+    }
+  }
+  logger_.info("Spoken voice prompts ready");
+}
+
+std::string NodeEngine::voicePromptText(const std::string &key) const {
+  const std::string call = callsign_.empty() ? "BenshiNode" : callsign_;
+  if (key == "help") {
+    return config_.getString(
+        "PIPER", "HELP_TEXT",
+        "BenshiNode help. This is " + call +
+            ". Press 0 for help. Press 1 to toggle parrot. Press 3 to send "
+            "identification. Press 4 to connect EchoLink. Press 4 plus a node "
+            "number to dial EchoLink. Press 5 to disconnect EchoLink. Press 6 "
+            "to join Discord. Press 7 to leave Discord. Press 9 to reset the "
+            "node.");
+  }
+  if (key == "startup") {
+    return config_.getString("PIPER", "STARTUP_TEXT",
+                             "BenshiNode ready. This is " + call + ".");
+  }
+  if (key == "parrot_on") {
+    return "Parrot on.";
+  }
+  if (key == "parrot_off") {
+    return "Parrot off.";
+  }
+  if (key == "reset") {
+    return "Node reset.";
+  }
+  if (key == "echo_connecting") {
+    return "Connecting EchoLink.";
+  }
+  if (key == "echo_disconnected") {
+    return "EchoLink disconnected.";
+  }
+  if (key == "discord_joining") {
+    return "Joining Discord.";
+  }
+  if (key == "discord_left") {
+    return "Discord disconnected.";
+  }
+  return {};
+}
+
+std::vector<int16_t> NodeEngine::voiceClip(const std::string &key) {
+  {
+    std::lock_guard<std::mutex> lock(voiceMutex_);
+    const auto it = voiceClips_.find(key);
+    if (it != voiceClips_.end()) {
+      return it->second;
+    }
+  }
+  if (!piper_.enabled()) {
+    return {};
+  }
+  const std::string text = voicePromptText(key);
+  if (text.empty()) {
+    return {};
+  }
+  std::vector<int16_t> pcm;
+  std::string error;
+  if (!piper_.synthesize(key, text, pcm, error)) {
+    logger_.warning("Voice prompt '" + key + "' failed: " + error);
+    return {};
+  }
+  {
+    std::lock_guard<std::mutex> lock(voiceMutex_);
+    voiceClips_[key] = pcm;
+  }
+  return pcm;
+}
+
+bool NodeEngine::speakPrompt(const std::string &key) {
+  std::vector<int16_t> pcm = voiceClip(key);
+  if (pcm.empty()) {
+    return false;
+  }
+  enqueueClip(std::move(pcm), key, Clock::now());
+  return true;
+}
+
+void NodeEngine::setRadioReady(bool ready) {
+  radioReady_.store(ready);
+  if (ready && !startupPromptPlayed_ &&
+      config_.getBool("PIPER", "STARTUP_PROMPT", false)) {
+    startupPromptPlayed_ = true;
+    speakPrompt("startup");
+  }
 }
 
 void NodeEngine::onRadioStatus(const RadioStatus &status) {
@@ -464,10 +598,14 @@ void NodeEngine::executeCommand(NodeCommand command,
     }
     logger_.info(std::string("Parrot ") + (enabled ? "enabled" : "disabled"));
     if (enabled) {
-      enqueueClip(ackClip_, "parrot-on", Clock::now());
+      if (!speakPrompt("parrot_on")) {
+        enqueueClip(ackClip_, "parrot-on", Clock::now());
+      }
       if (!run.empty()) {
         enqueueClip(run, "parrot", Clock::now() + std::chrono::milliseconds(parrotDelayMs_));
       }
+    } else if (!speakPrompt("parrot_off")) {
+      enqueueClip(ackClip_, "parrot-off", Clock::now());
     }
     break;
   }
@@ -491,6 +629,9 @@ void NodeEngine::executeCommand(NodeCommand command,
       suppressParrot_ = false;
     }
     logger_.info("Node state reset");
+    if (!speakPrompt("reset")) {
+      enqueueClip(ackClip_, "reset", Clock::now());
+    }
     break;
   case NodeCommand::EchoLinkConnect:
     logger_.info("DTMF EchoLink connect to configured node");
@@ -499,7 +640,9 @@ void NodeEngine::executeCommand(NodeCommand command,
     } else {
       logger_.warning("EchoLink control is not configured");
     }
-    enqueueClip(ackClip_, "echolink", Clock::now());
+    if (!speakPrompt("echo_connecting")) {
+      enqueueClip(ackClip_, "echolink", Clock::now());
+    }
     break;
   case NodeCommand::EchoLinkDial:
     logger_.info("DTMF EchoLink dial " + commandArg);
@@ -508,14 +651,18 @@ void NodeEngine::executeCommand(NodeCommand command,
     } else {
       logger_.warning("EchoLink control is not configured");
     }
-    enqueueClip(ackClip_, "echolink", Clock::now());
+    if (!speakPrompt("echo_connecting")) {
+      enqueueClip(ackClip_, "echolink", Clock::now());
+    }
     break;
   case NodeCommand::EchoLinkDisconnect:
     logger_.info("DTMF EchoLink disconnect");
     if (echoLinkControl_) {
       echoLinkControl_(false, "");
     }
-    enqueueClip(ackClip_, "echolink", Clock::now());
+    if (!speakPrompt("echo_disconnected")) {
+      enqueueClip(ackClip_, "echolink", Clock::now());
+    }
     break;
   case NodeCommand::DiscordJoin:
     logger_.info("DTMF Discord join");
@@ -524,14 +671,18 @@ void NodeEngine::executeCommand(NodeCommand command,
     } else {
       logger_.warning("Discord control is not configured");
     }
-    enqueueClip(ackClip_, "discord", Clock::now());
+    if (!speakPrompt("discord_joining")) {
+      enqueueClip(ackClip_, "discord", Clock::now());
+    }
     break;
   case NodeCommand::DiscordLeave:
     logger_.info("DTMF Discord leave");
     if (discordControl_) {
       discordControl_(false);
     }
-    enqueueClip(ackClip_, "discord", Clock::now());
+    if (!speakPrompt("discord_left")) {
+      enqueueClip(ackClip_, "discord", Clock::now());
+    }
     break;
   case NodeCommand::None:
     break;
@@ -597,7 +748,8 @@ void NodeEngine::txLoop() {
   std::unique_lock<std::mutex> lock(mutex_);
   while (running_.load()) {
     if (txQueue_.empty() && networkActive_.load()) {
-      if (carrierOpen_ || status_.inTx || !status_.powerOn) {
+      if (carrierOpen_ || status_.inTx || !status_.powerOn ||
+          !radioReady_.load() || !session_.audio().isConnected()) {
         txCv_.wait_for(lock, std::chrono::milliseconds(150));
         continue;
       }
@@ -698,7 +850,8 @@ void NodeEngine::txLoop() {
       txCv_.wait_until(lock, front.notBefore);
       continue;
     }
-    if (carrierOpen_ || status_.inTx || !status_.powerOn) {
+    if (carrierOpen_ || status_.inTx || !status_.powerOn ||
+        !radioReady_.load() || !session_.audio().isConnected()) {
       txCv_.wait_for(lock, std::chrono::milliseconds(150));
       continue;
     }

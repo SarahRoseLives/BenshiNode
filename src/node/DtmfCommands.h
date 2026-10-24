@@ -39,7 +39,7 @@ public:
 private:
   std::map<std::string, NodeCommand> commands_;
   std::string buffer_;
-  std::string dialPrefix_ = "*4";
+  std::string dialPrefix_ = "4";
   char prefix_ = '*';
   char suffix_ = '#';
 };

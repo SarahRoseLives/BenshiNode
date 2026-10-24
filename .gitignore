@@ -16,6 +16,10 @@ clips/*.wav
 # Reference materials used during development (large third-party trees)
 references/
 
+# Local Piper runtime, voice models, and generated prompt cache
+tools/piper/
+tts-cache/
+
 # OS noise
 Thumbs.db
 .DS_Store
