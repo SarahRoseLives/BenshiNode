@@ -261,7 +261,6 @@
           <tr>
             <th>ID</th>
             <th>Callsign</th>
-            <th>Remote</th>
             <th>Connected</th>
             <th>Last heard</th>
             <th>Audio</th>
@@ -469,10 +468,6 @@
       callsign.className = "callsign";
       callsign.textContent = session.callsign || "(unnamed)";
       row.appendChild(callsign);
-
-      var remote = document.createElement("td");
-      remote.textContent = session.remote || "—";
-      row.appendChild(remote);
 
       var connected = document.createElement("td");
       connected.textContent = formatTime(session.connected_at);

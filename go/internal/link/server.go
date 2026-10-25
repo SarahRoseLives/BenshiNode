@@ -75,7 +75,6 @@ type Event struct {
 type SessionStats struct {
 	ID           uint32    `json:"id"`
 	Callsign     string    `json:"callsign"`
-	Remote       string    `json:"remote"`
 	ConnectedAt  time.Time `json:"connected_at"`
 	LastSeen     time.Time `json:"last_seen"`
 	Talking      bool      `json:"talking"`
@@ -305,14 +304,9 @@ func (s *Server) Stats() Stats {
 	stats.SessionCount = len(s.sessions)
 	stats.Sessions = make([]SessionStats, 0, len(s.sessions))
 	for _, sess := range s.sessions {
-		remote := ""
-		if sess.hasAddr {
-			remote = sess.addr.String()
-		}
 		stats.Sessions = append(stats.Sessions, SessionStats{
 			ID:           sess.id,
 			Callsign:     sess.callsign,
-			Remote:       remote,
 			ConnectedAt:  sess.connectedAt,
 			LastSeen:     sess.lastSeen,
 			Talking:      s.activeTalker == sess.id,
