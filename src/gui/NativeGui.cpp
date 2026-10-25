@@ -536,12 +536,12 @@ void NativeGui::refresh() {
   EnableWindow(echoDisconnect_, state.connected && state.echolink);
   EnableWindow(echoDial_, state.connected && state.echolinkConfigured);
   EnableWindow(discordJoin_, state.connected && state.discordConfigured &&
-                                  !state.discord);
+                                  !state.discord && !state.link);
   EnableWindow(discordLeave_, state.connected && state.discord);
   EnableWindow(sendButton_, state.connected);
   EnableWindow(channelEdit_, state.connected);
   EnableWindow(channelApply_, state.connected);
-  const bool linkAvailable = state.connected && !state.discord && !state.echolink;
+  const bool linkAvailable = state.connected && !state.echolink;
   EnableWindow(linkServer_, linkAvailable && !state.link);
   EnableWindow(linkKey_, linkAvailable && !state.link);
   EnableWindow(linkConnect_, linkAvailable && !state.link);

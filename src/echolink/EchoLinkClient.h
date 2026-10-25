@@ -73,6 +73,7 @@ private:
   gsm encoder_ = nullptr;
   gsm decoder_ = nullptr;
   std::string remoteCallsign_;
+  uint64_t rxCallbackId_ = 0;
 };
 
 } // namespace vr76::echolink

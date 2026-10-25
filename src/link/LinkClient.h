@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -29,6 +30,11 @@ public:
              const std::string &callsign, std::string &error);
   void stop();
   bool isConnected() const { return connected_.load(); }
+
+  using ConnectionCallback = std::function<void(bool)>;
+  void setConnectionCallback(ConnectionCallback callback) {
+    connectionCallback_ = std::move(callback);
+  }
 
 private:
   bool authenticate(SOCKET &tcp, uint32_t &session, uint16_t &udpPort,
@@ -54,12 +60,17 @@ private:
   std::vector<int16_t> uplink32k_;
   std::vector<int16_t> uplink8k_;
   std::chrono::steady_clock::time_point lastUplink_{};
+  std::atomic<uint64_t> diagSamplesIn_{0};
+  std::atomic<uint64_t> diagFramesOut_{0};
+  std::chrono::steady_clock::time_point lastDiag_{};
+  uint64_t rxCallbackId_ = 0;
 
   Downsampler32to8 downsampler_;
   Upsampler8to32 upsampler_;
   uint32_t session_ = 0;
   uint32_t sequence_ = 0;
   bool talking_ = false;
+  ConnectionCallback connectionCallback_;
 };
 
 } // namespace vr76::link

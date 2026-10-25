@@ -25,6 +25,10 @@ const char *nodeCommandName(NodeCommand command) {
     return "DISCORD_JOIN";
   case NodeCommand::DiscordLeave:
     return "DISCORD_LEAVE";
+  case NodeCommand::LinkConnect:
+    return "LINK_CONNECT";
+  case NodeCommand::DisconnectAll:
+    return "DISCONNECT_ALL";
   case NodeCommand::None:
     break;
   }
@@ -68,6 +72,15 @@ bool parseNodeCommand(const std::string &text, NodeCommand &command) {
   }
   if (value == "DISCORD_LEAVE") {
     command = NodeCommand::DiscordLeave;
+    return true;
+  }
+  if (value == "LINK" || value == "LINK_CONNECT" || value == "NETWORK") {
+    command = NodeCommand::LinkConnect;
+    return true;
+  }
+  if (value == "DISCONNECT_ALL" || value == "ALL_LINKS" ||
+      value == "ALLLINK" || value == "UNLINK_ALL") {
+    command = NodeCommand::DisconnectAll;
     return true;
   }
   return false;

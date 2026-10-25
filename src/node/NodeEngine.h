@@ -31,6 +31,8 @@ public:
   using EchoLinkControl =
       std::function<void(bool connect, const std::string &target)>;
   using DiscordControl = std::function<void(bool connect)>;
+  using LinkControl = std::function<void(bool connect)>;
+  using DisconnectAllControl = std::function<void()>;
 
   void start();
   void stop();
@@ -40,21 +42,24 @@ public:
   void onAudioEnd(bool transmit);
   void setRadioReady(bool ready);
 
-  void addRxAudioCallback(RxAudioCallback callback) {
-    rxAudioCallbacks_.push_back(std::move(callback));
-  }
-  void setRxAudioCallback(RxAudioCallback callback) {
-    rxAudioCallbacks_.clear();
-    addRxAudioCallback(std::move(callback));
-  }
+  uint64_t addRxAudioCallback(RxAudioCallback callback);
+  void removeRxAudioCallback(uint64_t id);
+  void setRxAudioCallback(RxAudioCallback callback);
   void setEchoLinkControl(EchoLinkControl callback) {
     echoLinkControl_ = std::move(callback);
   }
   void setDiscordControl(DiscordControl callback) {
     discordControl_ = std::move(callback);
   }
+  void setLinkControl(LinkControl callback) {
+    linkControl_ = std::move(callback);
+  }
+  void setDisconnectAllControl(DisconnectAllControl callback) {
+    disconnectAllControl_ = std::move(callback);
+  }
   void enqueueNetworkAudio(const std::vector<int16_t> &pcm, bool end);
   bool speakPrompt(const std::string &key);
+  void playLinkStatePrompt(bool connected);
   void runCommand(NodeCommand command, const std::string &arg = "");
   bool submitDtmfCode(const std::string &code);
   RadioStatus radioStatus() const;
@@ -142,9 +147,13 @@ private:
   size_t networkLimitSamples_ = 32000 * 5;
   std::atomic<bool> txActive_{false};
   std::atomic<bool> cancelTx_{false};
-  std::vector<RxAudioCallback> rxAudioCallbacks_;
+  std::mutex rxCallbackMutex_;
+  std::map<uint64_t, RxAudioCallback> rxAudioCallbacks_;
+  uint64_t nextRxCallbackId_ = 1;
   EchoLinkControl echoLinkControl_;
   DiscordControl discordControl_;
+  LinkControl linkControl_;
+  DisconnectAllControl disconnectAllControl_;
 
   bool parrotEnabled_ = false;
   bool parrotAuto_ = false;

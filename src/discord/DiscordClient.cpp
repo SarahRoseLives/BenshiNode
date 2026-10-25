@@ -126,12 +126,18 @@ DiscordClient::DiscordClient(Logger &logger, const Config &config,
     guildId_ = 0;
     channelId_ = 0;
   }
-  autoJoin_ = config.getBool("DISCORD", "ENABLED", false);
-  node_.addRxAudioCallback(
+  autoJoin_.store(config.getBool("DISCORD", "ENABLED", false));
+  rxCallbackId_ = node_.addRxAudioCallback(
       [this](const std::vector<int16_t> &pcm) { pushRadioPcm(pcm); });
 }
 
-DiscordClient::~DiscordClient() { stop(); }
+DiscordClient::~DiscordClient() {
+  if (rxCallbackId_ != 0) {
+    node_.removeRxAudioCallback(rxCallbackId_);
+    rxCallbackId_ = 0;
+  }
+  stop();
+}
 
 bool DiscordClient::start(std::string &error) {
   if (bot_) {
@@ -174,7 +180,7 @@ bool DiscordClient::start(std::string &error) {
     bot_->on_ready([this](const dpp::ready_t &) {
       ready_.store(true);
       logger_.info("Discord bot connected");
-      if (autoJoin_) {
+      if (autoJoin_.load()) {
         std::string joinError;
         if (!join(joinError)) {
           logger_.warning("Discord auto-join failed: " + joinError);

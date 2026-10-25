@@ -63,11 +63,15 @@ EchoLinkClient::EchoLinkClient(Logger &logger, const Config &config,
 
   encoder_ = gsm_create();
   decoder_ = gsm_create();
-  node_.addRxAudioCallback(
+  rxCallbackId_ = node_.addRxAudioCallback(
       [this](const std::vector<int16_t> &pcm) { pushUplinkPcm(pcm); });
 }
 
 EchoLinkClient::~EchoLinkClient() {
+  if (rxCallbackId_ != 0) {
+    node_.removeRxAudioCallback(rxCallbackId_);
+    rxCallbackId_ = 0;
+  }
   stop();
   if (encoder_ != nullptr) {
     gsm_destroy(encoder_);

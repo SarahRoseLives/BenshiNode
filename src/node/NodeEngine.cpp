@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <iterator>
 #include <map>
 
 namespace vr76 {
@@ -87,19 +88,21 @@ NodeEngine::NodeEngine(Logger &logger, const Config &config,
   std::map<std::string, NodeCommand> commands;
   const std::string &commandPrefix = prefixText;
   const std::string &commandSuffix = suffixText;
-  const std::string defaults[8] = {"0", "1", "3", "4", "5", "6", "7", "9"};
-  const NodeCommand defaultCommands[8] = {
-      NodeCommand::Help, NodeCommand::ParrotToggle, NodeCommand::Ident,
+  const std::string defaults[] = {"0", "1", "2", "3", "4",
+                                  "5", "6", "7", "8", "9"};
+  const NodeCommand defaultCommands[] = {
+      NodeCommand::Help, NodeCommand::ParrotToggle,
+      NodeCommand::LinkConnect, NodeCommand::Ident,
       NodeCommand::EchoLinkConnect, NodeCommand::EchoLinkDisconnect,
       NodeCommand::DiscordJoin, NodeCommand::DiscordLeave,
-      NodeCommand::Reset};
-  for (size_t i = 0; i < 8; ++i) {
+      NodeCommand::DisconnectAll, NodeCommand::Reset};
+  for (size_t i = 0; i < std::size(defaults); ++i) {
     const std::string key = commandPrefix + defaults[i] + commandSuffix;
     commands[key] = defaultCommands[i];
   }
   // Allow [DTMF] to override or add commands. The documented form is
   // "1=PARROT"; a full "1#=PARROT" key is also accepted.
-  for (size_t i = 0; i < 8; ++i) {
+  for (size_t i = 0; i < std::size(defaults); ++i) {
     std::string value =
         config_.getString("DTMF", commandPrefix + defaults[i], "");
     if (value.empty()) {
@@ -206,7 +209,8 @@ void NodeEngine::loadVoicePrompts() {
   }
   for (const std::string &key :
        {"startup", "parrot_on", "parrot_off", "reset", "echo_connecting",
-        "echo_disconnected", "discord_joining", "discord_left"}) {
+        "echo_disconnected", "discord_joining", "discord_left",
+        "link_connected", "link_disconnected"}) {
     requests.push_back({key, voicePromptText(key)});
   }
 
@@ -236,11 +240,12 @@ std::string NodeEngine::voicePromptText(const std::string &key) const {
     return config_.getString(
         "PIPER", "HELP_TEXT",
         "BenshiNode help. This is " + call +
-            ". Press 0 for help. Press 1 to toggle parrot. Press 3 to send "
-            "identification. Press 4 to connect EchoLink. Press 4 plus a node "
-            "number to dial EchoLink. Press 5 to disconnect EchoLink. Press 6 "
-            "to join Discord. Press 7 to leave Discord. Press 9 to reset the "
-            "node.");
+            ". Press 0 for help. Press 1 to toggle parrot. Press 2 to "
+            "connect the network link. Press 3 to send identification. "
+            "Press 4 to connect EchoLink. Press 4 plus a node number to "
+            "dial EchoLink. Press 5 to disconnect EchoLink. Press 6 to "
+            "join Discord. Press 7 to leave Discord. Press 8 to "
+            "disconnect all networks. Press 9 to reset the node.");
   }
   if (key == "startup") {
     return config_.getString("PIPER", "STARTUP_TEXT",
@@ -266,6 +271,14 @@ std::string NodeEngine::voicePromptText(const std::string &key) const {
   }
   if (key == "discord_left") {
     return "Discord disconnected.";
+  }
+  if (key == "link_connected") {
+    return config_.getString("PIPER", "LINK_CONNECTED_TEXT",
+                             "Connected to Network.");
+  }
+  if (key == "link_disconnected") {
+    return config_.getString("PIPER", "LINK_DISCONNECTED_TEXT",
+                             "Disconnected from Network.");
   }
   return {};
 }
@@ -307,6 +320,13 @@ bool NodeEngine::speakPrompt(const std::string &key) {
   return true;
 }
 
+void NodeEngine::playLinkStatePrompt(bool connected) {
+  const std::string key = connected ? "link_connected" : "link_disconnected";
+  if (!speakPrompt(key)) {
+    enqueueClip(ackClip_, key, Clock::now());
+  }
+}
+
 void NodeEngine::setRadioReady(bool ready) {
   radioReady_.store(ready);
   if (ready && !startupPromptPlayed_ &&
@@ -314,6 +334,24 @@ void NodeEngine::setRadioReady(bool ready) {
     startupPromptPlayed_ = true;
     speakPrompt("startup");
   }
+}
+
+uint64_t NodeEngine::addRxAudioCallback(RxAudioCallback callback) {
+  std::lock_guard<std::mutex> lock(rxCallbackMutex_);
+  const uint64_t id = nextRxCallbackId_++;
+  rxAudioCallbacks_[id] = std::move(callback);
+  return id;
+}
+
+void NodeEngine::removeRxAudioCallback(uint64_t id) {
+  std::lock_guard<std::mutex> lock(rxCallbackMutex_);
+  rxAudioCallbacks_.erase(id);
+}
+
+void NodeEngine::setRxAudioCallback(RxAudioCallback callback) {
+  std::lock_guard<std::mutex> lock(rxCallbackMutex_);
+  rxAudioCallbacks_.clear();
+  rxAudioCallbacks_[nextRxCallbackId_++] = std::move(callback);
 }
 
 void NodeEngine::onRadioStatus(const RadioStatus &status) {
@@ -425,9 +463,12 @@ void NodeEngine::onAudioPcm(const std::vector<int16_t> &pcm, bool transmit) {
     logger_.info("DTMF command: " + code);
   }
   if (!uplinkPcm.empty()) {
-    for (const auto &callback : rxAudioCallbacks_) {
-      if (callback) {
-        callback(uplinkPcm);
+    // Hold the callback lock while dispatching so a client cannot be
+    // destroyed while its callback is running.
+    std::lock_guard<std::mutex> lock(rxCallbackMutex_);
+    for (const auto &entry : rxAudioCallbacks_) {
+      if (entry.second) {
+        entry.second(uplinkPcm);
       }
     }
   }
@@ -723,6 +764,30 @@ void NodeEngine::executeCommand(NodeCommand command,
     }
     if (!speakPrompt("discord_left")) {
       enqueueClip(ackClip_, "discord", Clock::now());
+    }
+    break;
+  case NodeCommand::LinkConnect:
+    logger_.info("DTMF network link connect");
+    if (linkControl_) {
+      linkControl_(true);
+    } else {
+      logger_.warning("Link control is not configured");
+    }
+    break;
+  case NodeCommand::DisconnectAll:
+    logger_.info("DTMF disconnect all networks");
+    if (disconnectAllControl_) {
+      disconnectAllControl_();
+    } else {
+      if (linkControl_) {
+        linkControl_(false);
+      }
+      if (echoLinkControl_) {
+        echoLinkControl_(false, "");
+      }
+      if (discordControl_) {
+        discordControl_(false);
+      }
     }
     break;
   case NodeCommand::None:

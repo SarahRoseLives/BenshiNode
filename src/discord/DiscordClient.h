@@ -34,6 +34,7 @@ public:
   bool join(std::string &error);
   void leave();
   bool isVoiceReady() const { return voiceReady_.load(); }
+  void setAutoJoin(bool enabled) { autoJoin_.store(enabled); }
 
 private:
   void pushRadioPcm(const std::vector<int16_t> &pcm);
@@ -48,7 +49,7 @@ private:
   std::string token_;
   uint64_t guildId_ = 0;
   uint64_t channelId_ = 0;
-  bool autoJoin_ = false;
+  std::atomic<bool> autoJoin_{false};
 
   std::unique_ptr<dpp::cluster> bot_;
   std::atomic<bool> running_{false};
@@ -58,6 +59,7 @@ private:
   std::mutex txMutex_;
   std::vector<int16_t> tx32_;
   std::vector<int16_t> tx48Mono_;
+  uint64_t rxCallbackId_ = 0;
 };
 
 } // namespace vr76::discord

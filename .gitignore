@@ -6,6 +6,7 @@ build/
 
 # Local configuration (contains Bluetooth/EchoLink credentials)
 BenshiNode.ini
+/server.ini
 *.local.ini
 *.ini.bak
 

@@ -15,7 +15,9 @@ enum class NodeCommand {
   EchoLinkDisconnect,
   EchoLinkDial,
   DiscordJoin,
-  DiscordLeave
+  DiscordLeave,
+  LinkConnect,
+  DisconnectAll
 };
 
 const char *nodeCommandName(NodeCommand command);

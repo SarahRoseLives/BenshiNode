@@ -230,17 +230,18 @@ Default command form is `<n>#` (no leading star):
 | --- | --- |
 | `1#` | Toggle parrot mode |
 | `0#` | Play spoken help, `clips\help.wav`, or CW help |
+| `2#` | Connect the configured BenshiNode link |
 | `3#` | Send ident now |
-| `9#` | Reset/cancel pending transmissions |
 | `4#` | Connect to the configured EchoLink node |
 | `4<node>#` | Dial any EchoLink node, e.g. `4179729#` |
 | `5#` | Disconnect EchoLink |
 | `6#` | Join the configured Discord voice channel |
 | `7#` | Leave the Discord voice channel |
+| `8#` | Disconnect all networks (link, EchoLink, Discord) |
+| `9#` | Reset/cancel pending transmissions |
 
-Command `2#` is unused. The EchoLink dial prefix is configurable with
-`[ECHOLINK] DTMF_PREFIX` and defaults to `4`. DTMF tones are removed from parrot
-and network audio.
+The EchoLink dial prefix is configurable with `[ECHOLINK] DTMF_PREFIX` and
+defaults to `4`. DTMF tones are removed from parrot and network audio.
 
 ## Station identification
 
@@ -278,13 +279,22 @@ MAX_CLIENTS=16
 Only the server needs inbound **TCP 7300** and **UDP 7301**. Clients make
 outbound connections.
 
+A standalone Go implementation of the server/reflector is available in `go/`.
+It is wire-compatible with the C++ client and uses its own `server.ini`
+(copied from `config/server.ini`). It adds an optional web dashboard with live
+stats and browser audio listening (`--web :8080`). See `go/README.md` for
+build and run instructions.
+
 ### Client
 
 In the native GUI, use the **BenshiNode link** panel: enter the server as
 `host:port`, enter the shared key, and click **Connect**. Click **Disconnect**
-to leave. The server and key are saved for convenience, but auto-connect is not
-enabled by the GUI. If Discord voice or EchoLink is active, leave/disconnect it
-first; the link shares the radio transmit path.
+to leave. The server and key are saved for convenience. When `[LINK] ENABLED=1`
+and `SERVER`/`KEY` are configured, the link also connects automatically at
+startup. A BenshiNode link has priority over Discord: connecting it
+automatically leaves the Discord voice channel and disables Discord auto-join
+while the link is active. EchoLink must still be disconnected first. DTMF `2#`
+connects the configured link and `8#` disconnects all networks.
 
 The same connection can be configured for console/startup use:
 
@@ -346,9 +356,9 @@ following EchoLink and national regulations.
 
 ## Piper voice prompts
 
-BenshiNode can use Piper to speak help, station identification, startup, and
-command acknowledgements. The default voice is the clear female
-`en_US-lessac-medium` model.
+BenshiNode can use Piper to speak help, station identification, startup,
+network link state, and command acknowledgements. The default voice is the
+clear female `en_US-lessac-medium` model.
 
 No Python installation is required. The Windows Piper download is a native C++
 executable using ONNX Runtime and espeak-ng. Install the runtime and voice with:
@@ -381,7 +391,13 @@ STARTUP_PROMPT=1
 TIMEOUT_MS=30000
 # HELP_TEXT=Custom help text.
 # STARTUP_TEXT=BenshiNode ready.
+# LINK_CONNECTED_TEXT=Connected to Network.
+# LINK_DISCONNECTED_TEXT=Disconnected from Network.
 ```
+
+The node speaks **Connected to Network** when a BenshiNode link is established
+and **Disconnected from Network** when it drops. If Piper is unavailable, it
+falls back to the normal beep acknowledgement.
 
 Generated WAV clips are cached in `tts-cache`. The first startup takes a few
 seconds while the cache is built; later startups reuse the cached clips. The
@@ -400,8 +416,9 @@ separately and remain subject to their own licenses.
 
 BenshiNode bridges radio audio to one Discord voice channel in both directions.
 Radio RX audio is sent to Discord; Discord audio is mixed to mono and played on
-the radio. Discord and BenshiNode link mode cannot be enabled at the same time
-yet. EchoLink may stay configured for DTMF use, but BenshiNode refuses to join
+the radio. A BenshiNode link has priority over Discord: starting a link leaves
+the Discord voice channel and blocks Discord join until the link disconnects.
+EchoLink may stay configured for DTMF use, but BenshiNode refuses to join
 Discord while EchoLink is connected, and refuses to start EchoLink while Discord
 is connected.
 

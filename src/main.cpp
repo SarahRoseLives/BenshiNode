@@ -417,7 +417,12 @@ int main(int argc, char **argv) {
         !discordToken.empty() && !discordGuild.empty() &&
         !discordChannel.empty();
     const bool discordDtmf = config.getBool("DISCORD", "DTMF", false);
-    const bool discordAuto = config.getBool("DISCORD", "ENABLED", false);
+    bool discordAuto = config.getBool("DISCORD", "ENABLED", false);
+    if (linkRequested && discordAuto) {
+      logger.info(
+          "BenshiNode link has priority; Discord auto-join is disabled");
+      discordAuto = false;
+    }
     const bool discordCapable =
         discordConfigured && (discordDtmf || discordAuto);
     if (!discordConfigured && (discordDtmf || discordAuto)) {
@@ -425,13 +430,9 @@ int main(int argc, char **argv) {
           "Discord DTMF/auto-join is enabled but TOKEN, GUILD_ID, or "
           "CHANNEL_ID is missing");
     }
-    if (linkRequested && echoCapable) {
-      logger.error("LINK and ECHOLINK cannot be enabled at the same time");
-      winrt::uninit_apartment();
-      return 2;
-    }
-    if (discordCapable && linkRequested) {
-      logger.error("DISCORD cannot be combined with LINK yet");
+    if (linkRequested && echoAuto) {
+      logger.error(
+          "LINK and ECHOLINK auto-connect cannot be enabled at the same time");
       winrt::uninit_apartment();
       return 2;
     }
@@ -459,6 +460,8 @@ int main(int argc, char **argv) {
 
     if (linkRequested) {
       link = std::make_unique<vr76::link::LinkClient>(logger, *node);
+      link->setConnectionCallback(
+          [&](bool connected) { node->playLinkStatePrompt(connected); });
     }
     if (echoCapable) {
       echoLink =
@@ -518,8 +521,31 @@ int main(int argc, char **argv) {
         }
       });
     }
+    node->setLinkControl([&](bool connect) {
+      vr76::gui::Action action;
+      action.type = connect ? "link_connect" : "link_disconnect";
+      if (connect) {
+        action.value = config.getString("LINK", "SERVER", "");
+        action.extra = config.getString("LINK", "KEY", "");
+        if (action.value.empty()) {
+          logger.warning("DTMF link connect: LINK/SERVER is not configured");
+          return;
+        }
+      }
+      std::lock_guard<std::mutex> lock(guiMutex);
+      guiActions.push_back(std::move(action));
+    });
+    node->setDisconnectAllControl([&]() {
+      vr76::gui::Action action;
+      action.type = "disconnect_all";
+      std::lock_guard<std::mutex> lock(guiMutex);
+      guiActions.push_back(std::move(action));
+    });
     node->start();
     if (discord) {
+      if (linkRequested) {
+        discord->setAutoJoin(false);
+      }
       std::string discordError;
       if (!discord->start(discordError)) {
         logger.error("Could not start Discord client: " + discordError);
@@ -688,12 +714,18 @@ int main(int argc, char **argv) {
       } else if (action.type == "link_connect") {
         if (action.value.empty()) {
           logger.warning("GUI link connect needs a server address");
-        } else if (discord && discord->isVoiceReady()) {
-          logger.warning("Leave Discord before connecting a BenshiNode link");
         } else if (echoLink && echoLink->isConnected()) {
           logger.warning(
               "Disconnect EchoLink before connecting a BenshiNode link");
         } else {
+          if (discord) {
+            discord->setAutoJoin(false);
+            if (discord->isVoiceReady()) {
+              discord->leave();
+              logger.info(
+                  "BenshiNode link has priority; left Discord voice channel");
+            }
+          }
           std::string host;
           uint16_t port = vr76::link::kDefaultControlPort;
           if (!parseServerEndpoint(action.value, host, port)) {
@@ -704,6 +736,8 @@ int main(int argc, char **argv) {
               link.reset();
             }
             link = std::make_unique<vr76::link::LinkClient>(logger, *node);
+            link->setConnectionCallback(
+                [&](bool connected) { node->playLinkStatePrompt(connected); });
             if (!link->start(host, port, action.extra,
                              config.getString("NODE", "CALLSIGN", ""),
                              actionError)) {
@@ -728,6 +762,19 @@ int main(int argc, char **argv) {
           link->stop();
           link.reset();
           logger.info("BenshiNode link disconnected");
+        }
+      } else if (action.type == "disconnect_all") {
+        if (link) {
+          link->stop();
+          link.reset();
+          logger.info("BenshiNode link disconnected");
+        }
+        if (echoLink) {
+          echoLink->stop();
+          logger.info("EchoLink disconnected");
+        }
+        if (discord) {
+          discord->leave();
         }
       } else if (action.type == "shutdown") {
         logger.info("GUI requested shutdown");

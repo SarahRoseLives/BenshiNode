@@ -20,10 +20,7 @@ constexpr size_t kFrameSamples = 160; // 20 ms at 8 kHz
 } // namespace
 
 LinkClient::LinkClient(Logger &logger, NodeEngine &node)
-    : logger_(logger), node_(node) {
-  node_.addRxAudioCallback(
-      [this](const std::vector<int16_t> &pcm) { pushUplinkPcm(pcm); });
-}
+    : logger_(logger), node_(node) {}
 
 LinkClient::~LinkClient() { stop(); }
 
@@ -38,6 +35,13 @@ bool LinkClient::start(const std::string &host, uint16_t port,
     error = socketError;
     return false;
   }
+  if (rxCallbackId_ == 0) {
+    rxCallbackId_ = node_.addRxAudioCallback(
+        [this](const std::vector<int16_t> &pcm) { pushUplinkPcm(pcm); });
+  }
+  diagSamplesIn_.store(0);
+  diagFramesOut_.store(0);
+  lastDiag_ = std::chrono::steady_clock::now();
   host_ = host;
   port_ = port;
   key_ = key;
@@ -54,6 +58,10 @@ void LinkClient::stop() {
     thread_.join();
   }
   connected_.store(false);
+  if (rxCallbackId_ != 0) {
+    node_.removeRxAudioCallback(rxCallbackId_);
+    rxCallbackId_ = 0;
+  }
 }
 
 bool LinkClient::authenticate(SOCKET &tcp, uint32_t &session,
@@ -133,6 +141,7 @@ bool LinkClient::authenticate(SOCKET &tcp, uint32_t &session,
 
 void LinkClient::run() {
   while (running_.load()) {
+    bool connectedNotified = false;
     SOCKET tcp = INVALID_SOCKET;
     uint32_t session = 0;
     uint16_t udpPort = 0;
@@ -177,6 +186,10 @@ void LinkClient::run() {
     sockaddr_storage serverEndpoint{};
     std::memcpy(&serverEndpoint, &serverAddress, sizeof(serverAddress));
     logger_.info("Linked to server " + endpointToString(serverEndpoint));
+    if (!connectedNotified && connectionCallback_) {
+      connectedNotified = true;
+      connectionCallback_(true);
+    }
 
     auto lastHeartbeat = std::chrono::steady_clock::now();
     auto nextSend = std::chrono::steady_clock::now();
@@ -191,8 +204,22 @@ void LinkClient::run() {
         break;
       }
       if (now >= nextSend) {
-        sendUplinkFrames(udp, serverAddress);
-        nextSend = now + std::chrono::milliseconds(20);
+        // Send every due 20 ms frame. Windows select timeouts are commonly
+        // quantized to ~15.6 ms, so sending only once per loop iteration
+        // settles near 32 frames/s. Catch up when more than one frame is due.
+        constexpr int kMaxCatchUpFrames = 4;
+        auto sendNow = now;
+        for (int sent = 0;
+             sent < kMaxCatchUpFrames && sendNow >= nextSend; ++sent) {
+          sendUplinkFrames(udp, serverAddress);
+          nextSend += std::chrono::milliseconds(20);
+          sendNow = std::chrono::steady_clock::now();
+        }
+        // Do not try to replay a long backlog after a stall; the uplink
+        // buffer already keeps only the most recent audio.
+        if (sendNow - nextSend > std::chrono::milliseconds(200)) {
+          nextSend = sendNow;
+        }
       }
 
       if (std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -205,6 +232,15 @@ void LinkClient::run() {
         sendTo(udp, reinterpret_cast<const sockaddr *>(&serverAddress),
                sizeof(serverAddress), data.data(), data.size());
         lastHeartbeat = now;
+      }
+
+      if (std::chrono::duration_cast<std::chrono::seconds>(now - lastDiag_)
+              .count() >= 5) {
+        logger_.debug(
+            "Link uplink: " +
+            std::to_string(diagSamplesIn_.exchange(0)) + " samples in, " +
+            std::to_string(diagFramesOut_.exchange(0)) + " frames out");
+        lastDiag_ = now;
       }
 
       fd_set readSet;
@@ -234,6 +270,12 @@ void LinkClient::run() {
     }
 
     connected_.store(false);
+    if (connectedNotified) {
+      connectedNotified = false;
+      if (connectionCallback_) {
+        connectionCallback_(false);
+      }
+    }
     closeSocket(udp);
     {
       std::lock_guard<std::mutex> lock(uplinkMutex_);
@@ -254,6 +296,7 @@ void LinkClient::pushUplinkPcm(const std::vector<int16_t> &pcm) {
   if (pcm.empty()) {
     return;
   }
+  diagSamplesIn_.fetch_add(pcm.size(), std::memory_order_relaxed);
   std::lock_guard<std::mutex> lock(uplinkMutex_);
   const size_t maximum = 32000 * 2;
   if (uplink32k_.size() > maximum) {
@@ -298,8 +341,10 @@ void LinkClient::sendUplinkFrames(SOCKET udp,
                         static_cast<std::ptrdiff_t>(kFrameSamples));
 
     const auto data = encodeAudioPacket(packet);
-    sendTo(udp, reinterpret_cast<const sockaddr *>(&serverAddress),
-           sizeof(serverAddress), data.data(), data.size());
+    if (sendTo(udp, reinterpret_cast<const sockaddr *>(&serverAddress),
+               sizeof(serverAddress), data.data(), data.size())) {
+      diagFramesOut_.fetch_add(1, std::memory_order_relaxed);
+    }
     break; // one 20 ms frame per iteration
   }
 
