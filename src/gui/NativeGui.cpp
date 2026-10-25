@@ -231,7 +231,9 @@ LRESULT NativeGui::handleMessage(HWND hwnd, UINT message, WPARAM wparam,
                                  LPARAM lparam) {
   switch (message) {
   case WM_COMMAND:
-    onCommand(LOWORD(wparam));
+    if (!dialogOpen_) {
+      onCommand(LOWORD(wparam));
+    }
     return 0;
   case WM_TIMER:
     refresh();
@@ -266,12 +268,11 @@ void NativeGui::createControls() {
   headline_ = makeControl(hwnd_, L"STATIC", L"Waiting for radio", SS_LEFT, 0,
                           titleFont_);
   detail_ = makeControl(hwnd_, L"STATIC", L"", SS_LEFT, 0, font_);
-  channel_ = makeControl(hwnd_, L"STATIC", L"Channel: --", SS_LEFT, 0, font_);
   rssi_ = makeControl(hwnd_, L"STATIC", L"RSSI: --", SS_LEFT, 0, font_);
   txrx_ = makeControl(hwnd_, L"STATIC", L"TX: --  RX: --", SS_LEFT, 0, font_);
   voice_ = makeControl(hwnd_, L"STATIC", L"", SS_LEFT, 0, font_);
 
-  makeControl(hwnd_, L"BUTTON", L"Quick actions (no star prefix)", BS_GROUPBOX, 0,
+  makeControl(hwnd_, L"BUTTON", L"Quick actions", BS_GROUPBOX, 0,
               font_);
   helpButton_ = makeControl(hwnd_, L"BUTTON", L"Help  0#", BS_PUSHBUTTON,
                             ID_HELP, font_);
@@ -386,12 +387,11 @@ void NativeGui::layoutControls() {
   MoveWindow(radioGroup, 20, 78, 600, 120, TRUE);
   MoveWindow(headline_, 40, 102, 560, 36, TRUE);
   MoveWindow(detail_, 40, 138, 560, 22, TRUE);
-  MoveWindow(channel_, 40, 166, 170, 22, TRUE);
   MoveWindow(rssi_, 225, 166, 150, 22, TRUE);
   MoveWindow(txrx_, 390, 166, 190, 22, TRUE);
 
   const HWND actionGroup =
-      FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Quick actions (no star prefix)");
+      FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Quick actions");
   MoveWindow(actionGroup, 20, 212, 600, 110, TRUE);
   const int actionX[6] = {38, 132, 226, 320, 414, 508};
   MoveWindow(helpButton_, actionX[0], 242, 84, 44, TRUE);
@@ -487,13 +487,6 @@ void NativeGui::refresh() {
   } else {
     SetWindowTextW(headline_, L"Ready");
     setText(detail_, "Channel is quiet.");
-  }
-  if (state.channel >= 0) {
-    setText(channel_, "Channel: " + std::to_string(state.channel) +
-                          " (display " + std::to_string(state.channel + 1) +
-                          ")");
-  } else {
-    SetWindowTextW(channel_, L"Channel: --");
   }
   setText(rssi_, "RSSI: " + std::to_string(state.rssi));
   setText(txrx_, std::string("TX: ") + (state.inTx ? "yes" : "no") +
@@ -618,7 +611,9 @@ void NativeGui::onCommand(int id) {
     PostMessageW(hwnd_, WM_CLOSE, 0, 0);
     break;
   case ID_PAIR_RADIO: {
+    dialogOpen_ = true;
     const std::string mac = showRadioSetup(hwnd_, state_().mac);
+    dialogOpen_ = false;
     if (!mac.empty()) {
       std::string error;
       if (setIniValue(configPath_, "RADIO", "MAC", mac, error)) {
@@ -632,7 +627,9 @@ void NativeGui::onCommand(int id) {
     break;
   }
   case ID_SETTINGS:
+    dialogOpen_ = true;
     showConfigEditor(hwnd_, configPath_);
+    dialogOpen_ = false;
     break;
   case ID_RESTART:
     action_({.type = "restart"});

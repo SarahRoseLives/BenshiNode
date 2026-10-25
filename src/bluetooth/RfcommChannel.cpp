@@ -284,6 +284,29 @@ std::vector<BluetoothDeviceInfo> RfcommChannel::discoverDevices(std::string &err
   std::vector<BluetoothDeviceInfo> result;
   try {
     ensureApartment();
+
+    // DeviceInformation.Pairing() does not reliably report the pairing state of
+    // classic Bluetooth devices. Use the Bluetooth pairing-state selector as
+    // the source of truth and match entries by their Bluetooth address.
+    std::vector<uint64_t> pairedAddresses;
+    try {
+      const auto pairedSelector =
+          bluetooth::BluetoothDevice::GetDeviceSelectorFromPairingState(true);
+      const auto pairedDevices =
+          enumeration::DeviceInformation::FindAllAsync(pairedSelector).get();
+      for (const auto &pairedInfo : pairedDevices) {
+        try {
+          auto pairedDevice =
+              bluetooth::BluetoothDevice::FromIdAsync(pairedInfo.Id()).get();
+          if (pairedDevice) {
+            pairedAddresses.push_back(pairedDevice.BluetoothAddress());
+          }
+        } catch (...) {
+        }
+      }
+    } catch (...) {
+    }
+
     const auto selector = bluetooth::BluetoothDevice::GetDeviceSelector();
     const auto devices =
         enumeration::DeviceInformation::FindAllAsync(selector).get();
@@ -296,8 +319,16 @@ std::vector<BluetoothDeviceInfo> RfcommChannel::discoverDevices(std::string &err
         BluetoothDeviceInfo entry;
         entry.id = winrt::to_string(info.Id());
         entry.name = winrt::to_string(device.Name());
-        entry.address = formatMac(device.BluetoothAddress());
-        entry.paired = info.Pairing().IsPaired();
+        const uint64_t address = device.BluetoothAddress();
+        entry.address = formatMac(address);
+        try {
+          entry.paired = info.Pairing().IsPaired();
+        } catch (...) {
+        }
+        if (!entry.paired) {
+          entry.paired = std::find(pairedAddresses.begin(), pairedAddresses.end(),
+                                   address) != pairedAddresses.end();
+        }
         std::string lowerName = entry.name;
         std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
                        [](unsigned char c) {

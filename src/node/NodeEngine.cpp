@@ -210,7 +210,7 @@ void NodeEngine::loadVoicePrompts() {
   for (const std::string &key :
        {"startup", "parrot_on", "parrot_off", "reset", "echo_connecting",
         "echo_disconnected", "discord_joining", "discord_left",
-        "link_connected", "link_disconnected"}) {
+        "link_connected", "link_disconnected", "all_disconnected"}) {
     requests.push_back({key, voicePromptText(key)});
   }
 
@@ -279,6 +279,10 @@ std::string NodeEngine::voicePromptText(const std::string &key) const {
   if (key == "link_disconnected") {
     return config_.getString("PIPER", "LINK_DISCONNECTED_TEXT",
                              "Disconnected from Network.");
+  }
+  if (key == "all_disconnected") {
+    return config_.getString("PIPER", "ALL_DISCONNECTED_TEXT",
+                             "Disconnected from all links.");
   }
   return {};
 }
@@ -788,6 +792,9 @@ void NodeEngine::executeCommand(NodeCommand command,
       if (discordControl_) {
         discordControl_(false);
       }
+    }
+    if (!speakPrompt("all_disconnected")) {
+      enqueueClip(ackClip_, "disconnect-all", Clock::now());
     }
     break;
   case NodeCommand::None:

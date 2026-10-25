@@ -67,6 +67,8 @@ struct ConfigDialog {
   int current = -1;
   bool suppressChange = false;
   bool dirty = false;
+  bool closed = false;
+  bool childDialogOpen = false;
 
   void createControls() {
     font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -223,7 +225,12 @@ struct ConfigDialog {
   }
 
   void pairRadio() {
+    if (childDialogOpen) {
+      return;
+    }
+    childDialogOpen = true;
     const std::string selected = showRadioSetup(hwnd, document.get("RADIO", "MAC"));
+    childDialogOpen = false;
     if (selected.empty()) return;
     document.set("RADIO", "MAC", selected);
     if (current >= 0 && current < static_cast<int>(entries.size())) {
@@ -239,6 +246,7 @@ struct ConfigDialog {
   }
 
   void command(int id, int notification) {
+    if (childDialogOpen) return;
     if (id == ID_LIST && notification == LBN_SELCHANGE) {
       selectItem(static_cast<int>(SendMessageW(listBox, LB_GETCURSEL, 0, 0)));
     } else if (id == ID_VALUE && notification == EN_CHANGE) {
@@ -289,7 +297,7 @@ struct ConfigDialog {
       DestroyWindow(hwnd);
       return 0;
     case WM_DESTROY:
-      PostQuitMessage(0);
+      dialog->closed = true;
       return 0;
     default:
       return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -333,12 +341,15 @@ void showConfigEditor(HWND parent, const std::string &path) {
   UpdateWindow(hwnd);
 
   MSG message{};
-  while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+  while (!dialog.closed && GetMessageW(&message, nullptr, 0, 0) > 0) {
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
 
   if (parent != nullptr) {
+    MSG pending{};
+    while (PeekMessageW(&pending, parent, WM_COMMAND, WM_COMMAND, PM_REMOVE)) {
+    }
     EnableWindow(parent, TRUE);
     SetForegroundWindow(parent);
   }

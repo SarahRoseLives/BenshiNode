@@ -96,7 +96,6 @@ private:
   HWND connection_ = nullptr;
   HWND headline_ = nullptr;
   HWND detail_ = nullptr;
-  HWND channel_ = nullptr;
   HWND rssi_ = nullptr;
   HWND txrx_ = nullptr;
   HWND voice_ = nullptr;
@@ -136,6 +135,7 @@ private:
 
   std::string commandText_;
   std::vector<std::string> lastLogs_;
+  bool dialogOpen_ = false;
 };
 
 } // namespace vr76::gui

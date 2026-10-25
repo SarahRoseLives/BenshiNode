@@ -47,6 +47,7 @@ struct RadioDialog {
   std::string currentMac;
   std::string selectedMac;
   bool selectedFound = false;
+  bool closed = false;
 
   void createControls() {
     font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -243,7 +244,7 @@ struct RadioDialog {
       DestroyWindow(hwnd);
       return 0;
     case WM_DESTROY:
-      PostQuitMessage(0);
+      dialog->closed = true;
       return 0;
     default:
       return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -287,12 +288,15 @@ std::string showRadioSetup(HWND parent, const std::string &currentMac) {
   dialog.refreshDevices();
 
   MSG message{};
-  while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+  while (!dialog.closed && GetMessageW(&message, nullptr, 0, 0) > 0) {
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
 
   if (parent != nullptr) {
+    MSG pending{};
+    while (PeekMessageW(&pending, parent, WM_COMMAND, WM_COMMAND, PM_REMOVE)) {
+    }
     EnableWindow(parent, TRUE);
     SetForegroundWindow(parent);
   }
