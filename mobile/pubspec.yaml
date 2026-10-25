@@ -1,0 +1,27 @@
+name: benshinode
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  crypto: ^3.0.7
+  flutter:
+    sdk: flutter
+  flutter_tts: ^4.2.5
+  intl: ^0.20.3
+  path_provider: ^2.1.6
+  permission_handler: 12.0.1
+  provider: ^6.1.5+1
+  shared_preferences: ^2.5.6
+  wakelock_plus: ^1.8.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

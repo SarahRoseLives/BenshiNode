@@ -1,0 +1,13 @@
+BenshiNode Android includes code adapted from HTCommander.
+
+HTCommander
+Copyright 2026 Ylian Saint-Hilaire
+https://github.com/Ylianst/HTCommander
+Licensed under the Apache License, Version 2.0.
+
+Adapted portions:
+- android/app/src/main/kotlin/dev/sarahsforge/benshinode/BluetoothClassicPlugin.kt
+- lib/sbc/* (SBC audio codec, which retains its original Apache-2.0 headers)
+
+The Apache License 2.0 text is included in
+third_party/HTCommander-LICENSE-APACHE-2.0.txt.
