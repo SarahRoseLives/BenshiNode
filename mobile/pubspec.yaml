@@ -1,5 +1,5 @@
 name: benshinode
-description: "A new Flutter project."
+description: "Android BenshiNode client for VR-N76 and VR-N7600 radios."
 publish_to: 'none'
 version: 0.1.0+1
 
