@@ -30,6 +30,10 @@ struct State {
   bool echolinkConfigured = false;
   bool link = false;
   bool linkConfigured = false;
+  bool allstar = false;
+  bool allstarConfigured = false;
+  bool allstarConnecting = false;
+  std::string allstarNode;
   std::string linkServer;
   std::string linkKey;
   bool voice = false;
@@ -104,6 +108,10 @@ private:
   HWND echoState_ = nullptr;
   HWND discordState_ = nullptr;
   HWND bridgeState_ = nullptr;
+  HWND allstarState_ = nullptr;
+  HWND allstarNode_ = nullptr;
+  HWND allstarConnect_ = nullptr;
+  HWND allstarDisconnect_ = nullptr;
   HWND channelEdit_ = nullptr;
   HWND channelApply_ = nullptr;
   HWND channelHint_ = nullptr;

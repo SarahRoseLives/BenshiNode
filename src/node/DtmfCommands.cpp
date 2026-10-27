@@ -27,6 +27,10 @@ const char *nodeCommandName(NodeCommand command) {
     return "DISCORD_LEAVE";
   case NodeCommand::LinkConnect:
     return "LINK_CONNECT";
+  case NodeCommand::AllStarConnect:
+    return "ALLSTAR_CONNECT";
+  case NodeCommand::AllStarDisconnect:
+    return "ALLSTAR_DISCONNECT";
   case NodeCommand::DisconnectAll:
     return "DISCONNECT_ALL";
   case NodeCommand::None:
@@ -76,6 +80,15 @@ bool parseNodeCommand(const std::string &text, NodeCommand &command) {
   }
   if (value == "LINK" || value == "LINK_CONNECT" || value == "NETWORK") {
     command = NodeCommand::LinkConnect;
+    return true;
+  }
+  if (value == "ALLSTAR" || value == "ALLSTAR_CONNECT" ||
+      value == "ALLSTAR_LINK") {
+    command = NodeCommand::AllStarConnect;
+    return true;
+  }
+  if (value == "ALLSTAR_DISCONNECT" || value == "ASL_UNLINK") {
+    command = NodeCommand::AllStarDisconnect;
     return true;
   }
   if (value == "DISCONNECT_ALL" || value == "ALL_LINKS" ||

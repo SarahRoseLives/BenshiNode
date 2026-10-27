@@ -17,6 +17,8 @@ enum class NodeCommand {
   DiscordJoin,
   DiscordLeave,
   LinkConnect,
+  AllStarConnect,
+  AllStarDisconnect,
   DisconnectAll
 };
 

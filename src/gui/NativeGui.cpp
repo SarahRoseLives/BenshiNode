@@ -1,4 +1,4 @@
-#include "NativeGui.h"
+﻿#include "NativeGui.h"
 
 #include "ConfigEditor.h"
 #include "IniConfig.h"
@@ -16,7 +16,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"BenshiNodeNativeGui";
 constexpr int kClientWidth = 1000;
-constexpr int kClientHeight = 840;
+constexpr int kClientHeight = 950;
 
 enum ControlId {
   ID_TITLE = 1000,
@@ -39,6 +39,8 @@ enum ControlId {
   ID_ECHO_DISCONNECT = 1011,
   ID_ECHO_DIAL = 1012,
   ID_ECHO_NODE = 1013,
+  ID_ALLSTAR_CONNECT = 1014,
+  ID_ALLSTAR_DISCONNECT = 1015,
   ID_DISCORD_JOIN = 1020,
   ID_DISCORD_LEAVE = 1021,
   ID_KEY_0 = 2000,
@@ -352,6 +354,17 @@ void NativeGui::createControls() {
       makeControl(hwnd_, L"BUTTON", L"Disconnect", BS_PUSHBUTTON,
                   ID_LINK_DISCONNECT, font_);
 
+  makeControl(hwnd_, L"BUTTON", L"AllStar", BS_GROUPBOX, 0, font_);
+  allstarState_ = makeControl(hwnd_, L"STATIC", L"Not configured", SS_LEFT, 0,
+                              font_);
+  allstarNode_ = makeControl(hwnd_, L"STATIC", L"Node: --", SS_LEFT, 0, font_);
+  allstarConnect_ =
+      makeControl(hwnd_, L"BUTTON", L"Connect", BS_PUSHBUTTON,
+                  ID_ALLSTAR_CONNECT, font_);
+  allstarDisconnect_ =
+      makeControl(hwnd_, L"BUTTON", L"Disconnect", BS_PUSHBUTTON,
+                  ID_ALLSTAR_DISCONNECT, font_);
+
   makeControl(hwnd_, L"BUTTON", L"Channel", BS_GROUPBOX, 0, font_);
   channelHint_ = makeControl(hwnd_, L"STATIC", L"Blank = use the radio current channel", SS_LEFT, 0, font_);
   channelEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
@@ -441,17 +454,25 @@ void NativeGui::layoutControls() {
   MoveWindow(linkConnect_, 660, 500, 100, 30, TRUE);
   MoveWindow(linkDisconnect_, 770, 500, 110, 30, TRUE);
 
+  const HWND allstarGroup =
+      FindWindowExW(hwnd_, nullptr, L"BUTTON", L"AllStar");
+  MoveWindow(allstarGroup, 640, 550, 340, 110, TRUE);
+  MoveWindow(allstarState_, 660, 576, 300, 22, TRUE);
+  MoveWindow(allstarNode_, 660, 600, 300, 22, TRUE);
+  MoveWindow(allstarConnect_, 660, 624, 100, 28, TRUE);
+  MoveWindow(allstarDisconnect_, 770, 624, 110, 28, TRUE);
+
   const HWND channelGroup =
       FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Channel");
-  MoveWindow(channelGroup, 640, 550, 340, 100, TRUE);
-  MoveWindow(channelHint_, 660, 576, 300, 22, TRUE);
-  MoveWindow(channelEdit_, 660, 606, 120, 28, TRUE);
-  MoveWindow(channelApply_, 790, 606, 80, 28, TRUE);
-  MoveWindow(voice_, 660, 664, 300, 22, TRUE);
+  MoveWindow(channelGroup, 640, 674, 340, 100, TRUE);
+  MoveWindow(channelHint_, 660, 700, 300, 22, TRUE);
+  MoveWindow(channelEdit_, 660, 730, 120, 28, TRUE);
+  MoveWindow(channelApply_, 790, 730, 80, 28, TRUE);
+  MoveWindow(voice_, 660, 788, 300, 22, TRUE);
 
   const HWND logGroup = FindWindowExW(hwnd_, nullptr, L"BUTTON", L"Live log");
-  MoveWindow(logGroup, 20, 702, 960, 128, TRUE);
-  MoveWindow(log_, 40, 726, 920, 90, TRUE);
+  MoveWindow(logGroup, 20, 800, 960, 128, TRUE);
+  MoveWindow(log_, 40, 824, 920, 90, TRUE);
 }
 
 void NativeGui::setText(HWND control, const std::string &text) {
@@ -518,6 +539,18 @@ void NativeGui::refresh() {
   } else {
     setText(bridgeState_, "Not connected");
   }
+  if (!state.allstarConfigured) {
+    SetWindowTextW(allstarState_, L"Not configured");
+  } else if (state.allstar) {
+    SetWindowTextW(allstarState_, L"Connected");
+  } else if (state.allstarConnecting) {
+    SetWindowTextW(allstarState_, L"Connecting");
+  } else {
+    SetWindowTextW(allstarState_, L"Idle");
+  }
+  setText(allstarNode_, "Node: " +
+                            (state.allstarNode.empty() ? std::string("--")
+                                                       : state.allstarNode));
 
   EnableWindow(helpButton_, state.connected);
   EnableWindow(identButton_, state.connected);
@@ -539,6 +572,13 @@ void NativeGui::refresh() {
   EnableWindow(linkKey_, linkAvailable && !state.link);
   EnableWindow(linkConnect_, linkAvailable && !state.link);
   EnableWindow(linkDisconnect_, state.link);
+  EnableWindow(allstarConnect_, state.allstarConfigured && !state.allstar &&
+                                     !state.allstarConnecting &&
+                                     !state.echolink && !state.link &&
+                                     !state.discord);
+  EnableWindow(allstarDisconnect_,
+               state.allstarConfigured &&
+                   (state.allstar || state.allstarConnecting));
   for (HWND button : keypadButtons_) {
     EnableWindow(button, state.connected);
   }
@@ -658,6 +698,12 @@ void NativeGui::onCommand(int id) {
   }
   case ID_LINK_DISCONNECT:
     action_({.type = "link_disconnect"});
+    break;
+  case ID_ALLSTAR_CONNECT:
+    action_({.type = "allstar_connect"});
+    break;
+  case ID_ALLSTAR_DISCONNECT:
+    action_({.type = "allstar_disconnect"});
     break;
   case ID_ECHO_CONNECT:
     action_({.type = "echolink_connect"});

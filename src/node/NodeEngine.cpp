@@ -210,7 +210,8 @@ void NodeEngine::loadVoicePrompts() {
   for (const std::string &key :
        {"startup", "parrot_on", "parrot_off", "reset", "echo_connecting",
         "echo_disconnected", "discord_joining", "discord_left",
-        "link_connected", "link_disconnected", "all_disconnected"}) {
+        "link_connected", "link_disconnected", "all_disconnected",
+        "allstar_connecting", "allstar_connected", "allstar_disconnected"}) {
     requests.push_back({key, voicePromptText(key)});
   }
 
@@ -284,6 +285,18 @@ std::string NodeEngine::voicePromptText(const std::string &key) const {
     return config_.getString("PIPER", "ALL_DISCONNECTED_TEXT",
                              "Disconnected from all links.");
   }
+  if (key == "allstar_connecting") {
+    return config_.getString("PIPER", "ALLSTAR_CONNECTING_TEXT",
+                             "Connecting AllStar.");
+  }
+  if (key == "allstar_connected") {
+    return config_.getString("PIPER", "ALLSTAR_CONNECTED_TEXT",
+                             "Connected to AllStar.");
+  }
+  if (key == "allstar_disconnected") {
+    return config_.getString("PIPER", "ALLSTAR_DISCONNECTED_TEXT",
+                             "AllStar disconnected.");
+  }
   return {};
 }
 
@@ -326,6 +339,14 @@ bool NodeEngine::speakPrompt(const std::string &key) {
 
 void NodeEngine::playLinkStatePrompt(bool connected) {
   const std::string key = connected ? "link_connected" : "link_disconnected";
+  if (!speakPrompt(key)) {
+    enqueueClip(ackClip_, key, Clock::now());
+  }
+}
+
+void NodeEngine::playAllStarStatePrompt(bool connected) {
+  const std::string key =
+      connected ? "allstar_connected" : "allstar_disconnected";
   if (!speakPrompt(key)) {
     enqueueClip(ackClip_, key, Clock::now());
   }
@@ -778,6 +799,25 @@ void NodeEngine::executeCommand(NodeCommand command,
       logger_.warning("Link control is not configured");
     }
     break;
+  case NodeCommand::AllStarConnect:
+    logger_.info("DTMF AllStar connect");
+    if (allStarControl_) {
+      allStarControl_(true);
+    } else {
+      logger_.warning("AllStar control is not configured");
+    }
+    if (!speakPrompt("allstar_connecting")) {
+      enqueueClip(ackClip_, "allstar-connecting", Clock::now());
+    }
+    break;
+  case NodeCommand::AllStarDisconnect:
+    logger_.info("DTMF AllStar disconnect");
+    if (allStarControl_) {
+      allStarControl_(false);
+    } else {
+      logger_.warning("AllStar control is not configured");
+    }
+    break;
   case NodeCommand::DisconnectAll:
     logger_.info("DTMF disconnect all networks");
     if (disconnectAllControl_) {
@@ -791,6 +831,9 @@ void NodeEngine::executeCommand(NodeCommand command,
       }
       if (discordControl_) {
         discordControl_(false);
+      }
+      if (allStarControl_) {
+        allStarControl_(false);
       }
     }
     if (!speakPrompt("all_disconnected")) {

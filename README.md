@@ -3,8 +3,8 @@
 BenshiNode is a Windows C++ simplex radio node for the Vero VR-N76 handheld,
 the VR-N7600 mobile, and compatible Benshi Bluetooth radios. It turns the radio
 into a small SVXLink-style voice node with DTMF control, parrot mode, CW or
-spoken identification, BenshiNode linking, outbound EchoLink, and a
-bidirectional Discord voice bridge.
+spoken identification, BenshiNode linking, outbound EchoLink, outbound
+AllStarLink (IAX2), and a bidirectional Discord voice bridge.
 
 Radio callsign used by the current configuration: **N0CALL**.
 
@@ -23,24 +23,28 @@ Working:
 - BenshiNode link server/reflector (`--server`)
 - BenshiNode link client (`--connect`)
 - Outbound EchoLink with directory lookup, GSM 06.10 audio, and DTMF dialing
+- Outbound AllStarLink over IAX2 with MD5 authentication and u-law audio
 - Optional Discord voice-channel bridge with DTMF join/leave control
 - Optional Piper female voice for help, callsign spelling, and command prompts
-- Native Windows GUI with status, DTMF keypad, EchoLink/Discord controls, and live log
+- Native Windows GUI with status, DTMF keypad, EchoLink/AllStar/Discord
+  controls, and live log
 - Windows build and automated protocol/codec tests
 
 Not yet implemented:
 
 - Incoming EchoLink connections
 - EchoLink proxy support
-- AllStarLink / IAX2
+- Inbound AllStar hosting, IAX2 registration, Web Transceiver/portal auth, and
+  GSM audio
 - SVXLink reflector interoperability
 - Dynamic DTMF commands for the BenshiNode link server
 - Full SVXLink module/event system
 
-EchoLink and Discord are disabled by default. No EchoLink station is contacted
-unless `ECHOLINK/ENABLED=1`, `--echolink` is used, or a DTMF dial command is
-sent. Discord is inactive until a token, guild, and voice channel are
-configured.
+EchoLink, Discord, and AllStar are disabled by default. No EchoLink station is
+contacted unless `ECHOLINK/ENABLED=1`, `--echolink` is used, or a DTMF dial
+command is sent. Discord is inactive until a token, guild, and voice channel are
+configured. AllStar is inactive until `[ALLSTAR]` is configured and the GUI
+Connect button is used or `ALLSTAR/ENABLED=1`.
 
 ## Requirements
 
@@ -200,10 +204,11 @@ logging. Press Ctrl+C to stop.
 It starts the same node engine and configuration as the console version.
 
 The window shows radio connection, channel, RSSI, TX/RX state, Piper status,
-EchoLink and Discord state, and a live log. It provides quick command buttons
-for help (`0#`), identify (`3#`), parrot (`1#`), reset (`9#`), force unkey, and
-node stop, plus an on-screen DTMF keypad and EchoLink dial field. All controls
-use the same no-star command codes as the radio keypad.
+EchoLink, Discord, and AllStar state, and a live log. It provides quick command
+buttons for help (`0#`), identify (`3#`), parrot (`1#`), reset (`9#`), force
+unkey, and node stop, plus an on-screen DTMF keypad and EchoLink dial field, and
+an AllStar Connect/Disconnect card. All controls use the same no-star command
+codes as the radio keypad.
 
 The **Pair radio** button scans Bluetooth, pairs selected devices, and saves the
 selected radio address. Windows may show separate control and audio entries for
@@ -211,10 +216,10 @@ the radio; pair both, then select the entry BenshiNode should use. No `.ini`
 editing is required.
 
 The **Settings** window lists every section and key in the configuration as
-individual fields. Select a field, edit its value, and use Save; optional path
-fields have a Browse button. This covers radio, channel, DTMF, Piper, EchoLink,
-Discord, link, logging, and advanced options. Saving creates a
-`BenshiNode.ini.bak` backup first.
+individual fields, including `[ALLSTAR]`. Select a field, edit its value, and
+use Save; optional path fields have a Browse button. This covers radio, channel,
+DTMF, Piper, EchoLink, Discord, AllStar, link, logging, and advanced options.
+Saving creates a `BenshiNode.ini.bak` backup first.
 
 The main window also has a **Channel** box. Enter a memory channel ID and click
 Apply to select it live and save it for future starts. Leave it blank and click
@@ -237,11 +242,14 @@ Default command form is `<n>#` (no leading star):
 | `5#` | Disconnect EchoLink |
 | `6#` | Join the configured Discord voice channel |
 | `7#` | Leave the Discord voice channel |
-| `8#` | Disconnect all networks (link, EchoLink, Discord) |
+| `8#` | Disconnect all networks (link, EchoLink, Discord, AllStar) |
 | `9#` | Reset/cancel pending transmissions |
 
 The EchoLink dial prefix is configurable with `[ECHOLINK] DTMF_PREFIX` and
 defaults to `4`. DTMF tones are removed from parrot and network audio.
+
+AllStar has no default key. Map it in `[DTMF]`, for example
+`2=ALLSTAR_CONNECT` and `5=ALLSTAR_DISCONNECT` (these override the defaults).
 
 ## Station identification
 
@@ -353,6 +361,41 @@ implemented yet.
 EchoLink audio is sent in the clear. There is no encryption, and none is needed
 for amateur radio. Stations remain responsible for identification and for
 following EchoLink and national regulations.
+
+## AllStarLink
+
+BenshiNode can bridge the radio to an outbound AllStarLink node over IAX2. It
+calls the configured node number with an IAX2 username/secret and uses G.711
+u-law audio. Inbound hosting, registration, Web Transceiver/portal tokens, and
+GSM are not implemented.
+
+```ini
+[ALLSTAR]
+ENABLED=0
+NODE=12345
+HOST=
+PORT=4569
+USER=iaxuser
+SECRET=iaxsecret
+CALLERID=K8SDR
+CALLERNUMBER=12345
+```
+
+`HOST` defaults to `<NODE>.nodes.allstarlink.org` when blank. For a private
+node, set `HOST` to its reachable hostname or IP. `ENABLED=1` connects on
+startup; otherwise use the **AllStar** card in the GUI. `CALLERID` and
+`CALLERNUMBER` are optional but help ASL3 nodes accept the call.
+
+AllStar is mutually exclusive with the BenshiNode link, EchoLink, and Discord.
+Disconnect the active service before connecting another. No DTMF key is
+assigned by default; map one in `[DTMF]`, for example `2=ALLSTAR_CONNECT` and
+`5=ALLSTAR_DISCONNECT` (these override the default keys). The GUI is the
+primary control.
+
+Audio is 8 kHz u-law; radio audio is resampled to and from 32 kHz. The client
+uses IAX2 MD5 authentication. AllStar audio is sent in the clear. If the node
+rejects the call with a cause such as "No such context/extension", its dialplan
+does not accept direct IAX calls for that number.
 
 ## Piper voice prompts
 

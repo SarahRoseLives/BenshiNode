@@ -32,6 +32,7 @@ public:
       std::function<void(bool connect, const std::string &target)>;
   using DiscordControl = std::function<void(bool connect)>;
   using LinkControl = std::function<void(bool connect)>;
+  using AllStarControl = std::function<void(bool connect)>;
   using DisconnectAllControl = std::function<void()>;
 
   void start();
@@ -54,12 +55,16 @@ public:
   void setLinkControl(LinkControl callback) {
     linkControl_ = std::move(callback);
   }
+  void setAllStarControl(AllStarControl callback) {
+    allStarControl_ = std::move(callback);
+  }
   void setDisconnectAllControl(DisconnectAllControl callback) {
     disconnectAllControl_ = std::move(callback);
   }
   void enqueueNetworkAudio(const std::vector<int16_t> &pcm, bool end);
   bool speakPrompt(const std::string &key);
   void playLinkStatePrompt(bool connected);
+  void playAllStarStatePrompt(bool connected);
   void runCommand(NodeCommand command, const std::string &arg = "");
   bool submitDtmfCode(const std::string &code);
   RadioStatus radioStatus() const;
@@ -153,6 +158,7 @@ private:
   EchoLinkControl echoLinkControl_;
   DiscordControl discordControl_;
   LinkControl linkControl_;
+  AllStarControl allStarControl_;
   DisconnectAllControl disconnectAllControl_;
 
   bool parrotEnabled_ = false;

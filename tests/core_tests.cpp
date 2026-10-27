@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "allstar/Iax2Protocol.h"
 #include "echolink/EchoLinkProtocol.h"
 #include "link/G711.h"
 #include "link/LinkProtocol.h"
@@ -367,6 +368,67 @@ void testCommands() {
   check(command == vr76::NodeCommand::None, "prefixed key is not a command");
 }
 
+void testIax2() {
+  vr76::iax2::Frame frame;
+  frame.source = 0x1234;
+  frame.destination = 0x5678;
+  frame.timestamp = 0x01020304;
+  frame.oseq = 1;
+  frame.iseq = 2;
+  frame.type = vr76::iax2::FrameIax;
+  frame.subclass = vr76::iax2::IaxNew;
+
+  vr76::iax2::IeSet ies;
+  ies.addUint16(vr76::iax2::IeVersion, vr76::iax2::kProtocolVersion);
+  ies.addString(vr76::iax2::IeCalledNumber, "12345");
+  ies.addString(vr76::iax2::IeCallingNumber, "K8SDR");
+  ies.addString(vr76::iax2::IeUsername, "user");
+  ies.addUint32(vr76::iax2::IeCapability, vr76::iax2::FormatUlaw);
+  ies.addUint32(vr76::iax2::IeFormat, vr76::iax2::FormatUlaw);
+  frame.payload = ies.build();
+
+  const auto bytes = vr76::iax2::encodeFull(frame);
+  check(bytes.size() > 12 && (bytes[0] & 0x80) != 0, "iax full frame flag");
+
+  vr76::iax2::Frame decoded;
+  check(vr76::iax2::decodeFull(bytes.data(), bytes.size(), decoded),
+        "iax full frame decode");
+  check(decoded.source == frame.source &&
+            decoded.destination == frame.destination,
+        "iax call numbers");
+  check(decoded.type == vr76::iax2::FrameIax &&
+            decoded.subclass == vr76::iax2::IaxNew,
+        "iax frame type");
+  check(decoded.timestamp == frame.timestamp, "iax timestamp");
+  check(decoded.oseq == frame.oseq && decoded.iseq == frame.iseq,
+        "iax sequence numbers");
+
+  const auto parsed =
+      vr76::iax2::IeSet::parse(decoded.payload.data(), decoded.payload.size());
+  check(parsed.getUint(vr76::iax2::IeVersion) == vr76::iax2::kProtocolVersion,
+        "iax version ie");
+  check(parsed.getString(vr76::iax2::IeCalledNumber) == "12345",
+        "iax called number ie");
+  check(parsed.getUint(vr76::iax2::IeFormat) == vr76::iax2::FormatUlaw,
+        "iax format ie");
+
+  std::vector<uint8_t> payload(160, 0x7F);
+  const auto mini = vr76::iax2::encodeMini(0x1234, 0xABCD, payload);
+  check(!vr76::iax2::isFullFrame(mini.data(), mini.size()),
+        "iax mini frame flag");
+  uint16_t source = 0;
+  uint16_t timestamp = 0;
+  std::vector<uint8_t> miniPayload;
+  check(vr76::iax2::decodeMini(mini.data(), mini.size(), source, timestamp,
+                               miniPayload),
+        "iax mini frame decode");
+  check(source == 0x1234 && timestamp == 0xABCD, "iax mini header");
+  check(miniPayload == payload, "iax mini payload");
+
+  const auto retransmit = vr76::iax2::encodeFull(frame, true);
+  check((retransmit[2] & 0x80) != 0, "iax retransmit bit");
+}
+
 } // namespace
 
 int main() {
@@ -380,6 +442,7 @@ int main() {
   testEchoLinkProtocol();
   testGsmCodec();
   testCommands();
+  testIax2();
 
   if (failures != 0) {
     std::cerr << failures << " test(s) failed\n";

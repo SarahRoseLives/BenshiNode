@@ -1,5 +1,6 @@
 #include "Config.h"
 #include "Logger.h"
+#include "allstar/AllStarClient.h"
 #include "bluetooth/RfcommChannel.h"
 #include "discord/DiscordClient.h"
 #include "echolink/EchoLinkClient.h"
@@ -365,6 +366,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<vr76::link::LinkClient> link;
   std::unique_ptr<vr76::echolink::EchoLinkClient> echoLink;
   std::unique_ptr<vr76::discord::DiscordClient> discord;
+  std::unique_ptr<vr76::AllStarClient> allStar;
   std::unique_ptr<vr76::gui::NativeGui> nativeGui;
   std::mutex guiMutex;
   std::vector<vr76::gui::Action> guiActions;
@@ -458,6 +460,11 @@ int main(int argc, char **argv) {
     session.setAudioEndCallback(
         [&](bool transmit) { node->onAudioEnd(transmit); });
 
+    allStar = std::make_unique<vr76::AllStarClient>(logger, config, *node);
+    if (!allStar->configured()) {
+      allStar.reset();
+    }
+
     if (linkRequested) {
       link = std::make_unique<vr76::link::LinkClient>(logger, *node);
       link->setConnectionCallback(
@@ -480,6 +487,11 @@ int main(int argc, char **argv) {
               if (link && link->isConnected()) {
                 logger.error(
                     "Disconnect the BenshiNode link before using EchoLink");
+                return;
+              }
+              if (allStar &&
+                  (allStar->isConnected() || allStar->isConnecting())) {
+                logger.error("Disconnect AllStar before using EchoLink");
                 return;
               }
               const std::string dialTarget =
@@ -512,6 +524,11 @@ int main(int argc, char **argv) {
                 "Disconnect the BenshiNode link before joining Discord");
             return;
           }
+          if (allStar &&
+              (allStar->isConnected() || allStar->isConnecting())) {
+            logger.error("Disconnect AllStar before joining Discord");
+            return;
+          }
           std::string discordError;
           if (!discord->join(discordError)) {
             logger.error("Discord join failed: " + discordError);
@@ -525,6 +542,11 @@ int main(int argc, char **argv) {
       vr76::gui::Action action;
       action.type = connect ? "link_connect" : "link_disconnect";
       if (connect) {
+        if (allStar &&
+            (allStar->isConnected() || allStar->isConnecting())) {
+          logger.error("Disconnect AllStar before connecting the link");
+          return;
+        }
         action.value = config.getString("LINK", "SERVER", "");
         action.extra = config.getString("LINK", "KEY", "");
         if (action.value.empty()) {
@@ -535,6 +557,36 @@ int main(int argc, char **argv) {
       std::lock_guard<std::mutex> lock(guiMutex);
       guiActions.push_back(std::move(action));
     });
+    node->setAllStarControl([&](bool connect) {
+      if (!allStar) {
+        logger.warning("ALLSTAR is not configured");
+        return;
+      }
+      if (connect) {
+        if (echoLink && echoLink->isConnected()) {
+          logger.error("Disconnect EchoLink before using AllStar");
+          return;
+        }
+        if (link && link->isConnected()) {
+          logger.error("Disconnect the BenshiNode link before using AllStar");
+          return;
+        }
+        if (discord && discord->isVoiceReady()) {
+          logger.error("Leave the Discord voice channel before using AllStar");
+          return;
+        }
+        std::string allStarError;
+        if (!allStar->connect(allStarError)) {
+          logger.error("AllStar connect failed: " + allStarError);
+        }
+      } else {
+        allStar->disconnect();
+      }
+    });
+    if (allStar) {
+      allStar->setConnectionCallback(
+          [&](bool connected) { node->playAllStarStatePrompt(connected); });
+    }
     node->setDisconnectAllControl([&]() {
       vr76::gui::Action action;
       action.type = "disconnect_all";
@@ -567,6 +619,19 @@ int main(int argc, char **argv) {
     if (echoDtmf && !echoAuto) {
       logger.info("EchoLink idle. Send 4# to connect, 5# to disconnect.");
     }
+    if (allStar && allStar->autoConnect()) {
+      if (linkRequested || echoAuto || discordAuto) {
+        logger.info(
+            "AllStar auto-connect skipped; another network is active");
+      } else {
+        std::string allStarError;
+        if (!allStar->connect(allStarError)) {
+          logger.error("AllStar auto-connect failed: " + allStarError);
+        } else {
+          logger.info("AllStar connecting on startup");
+        }
+      }
+    }
 
     if (gui) {
       nativeGui = std::make_unique<vr76::gui::NativeGui>(
@@ -592,6 +657,10 @@ int main(int argc, char **argv) {
             state.echolinkConfigured = static_cast<bool>(echoLink);
             state.link = link && link->isConnected();
             state.linkConfigured = static_cast<bool>(link);
+            state.allstar = allStar && allStar->isConnected();
+            state.allstarConfigured = static_cast<bool>(allStar);
+            state.allstarConnecting = allStar && allStar->isConnecting();
+            state.allstarNode = config.getString("ALLSTAR", "NODE", "");
             state.voice = config.getBool("PIPER", "ENABLED", false);
             state.linkServer = config.getString("LINK", "SERVER", "");
             state.linkKey = config.getString("LINK", "KEY", "");
@@ -763,6 +832,10 @@ int main(int argc, char **argv) {
           link.reset();
           logger.info("BenshiNode link disconnected");
         }
+      } else if (action.type == "allstar_connect") {
+        node->runCommand(vr76::NodeCommand::AllStarConnect);
+      } else if (action.type == "allstar_disconnect") {
+        node->runCommand(vr76::NodeCommand::AllStarDisconnect);
       } else if (action.type == "disconnect_all") {
         if (link) {
           link->stop();
@@ -775,6 +848,9 @@ int main(int argc, char **argv) {
         }
         if (discord) {
           discord->leave();
+        }
+        if (allStar) {
+          allStar->disconnect();
         }
       } else if (action.type == "shutdown") {
         logger.info("GUI requested shutdown");
@@ -884,12 +960,15 @@ int main(int argc, char **argv) {
   if (link) {
     link->stop();
   }
+  if (allStar) {
+    allStar->stop();
+  }
   if (node) {
     node->stop();
   }
   session.disconnect();
   recorder.close();
-  if (link || echoLink) {
+  if (link || echoLink || allStar) {
     vr76::link::socketCleanup();
   }
 

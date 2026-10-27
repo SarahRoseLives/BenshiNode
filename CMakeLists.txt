@@ -81,6 +81,7 @@ add_library(benshinode_core STATIC
   src/link/Resampler.cpp
   src/link/LinkProtocol.cpp
   src/echolink/EchoLinkProtocol.cpp
+  src/allstar/Iax2Protocol.cpp
 )
 target_include_directories(benshinode_core PUBLIC src)
 target_link_libraries(benshinode_core PUBLIC sbc)
@@ -112,6 +113,7 @@ if(WIN32)
     src/link/LinkServer.cpp
     src/link/LinkClient.cpp
     src/echolink/EchoLinkClient.cpp
+    src/allstar/AllStarClient.cpp
     src/discord/DiscordClient.cpp
     src/tts/PiperTts.cpp
     src/gui/NativeGui.cpp
